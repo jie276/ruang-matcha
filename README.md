@@ -1,20 +1,19 @@
-# Ruang Matcha · 抹茶商品网页初稿
+# Ruang Matcha
 
-双语静态商品展示网页，使用提供的罐装与袋装两张商品图。
+这个仓库有两个版本。**现在的商城与商家后台在 mori-matcha-commerce/；根目录 dist/ 是早期静态展示页。**
 
-- `dist/index.html`：访客页面，所有设备均逐件纵向展示商品。
-- `dist/review.html`：切换电脑、平板、手机尺寸的设计预览。
-- `dist/config.js`：店铺入口、罐装商品、袋装商品的独立 HTTPS 目标链接；当前未提供时显示预览提示。
-- `dist/styles.css`：响应式视觉样式、减少动态效果适配。
-- `dist/app.js`：导航、商品图放大、规格预览、链接提示与滚动动画。
+| 想做什么 | 入口 |
+| --- | --- |
+| 体验新版商城 | [打开私有预览](https://mori-matcha-commerce-jie.geniallily16.chatgpt.site/) |
+| 管理商品、图片、价格和订单 | [商家后台登录页](https://mori-matcha-commerce-jie.geniallily16.chatgpt.site/admin/login) |
+| 看店主操作步骤 | [商家使用说明](mori-matcha-commerce/docs/使用说明.md) |
+| 让开发人员对接后端 | [接口与部署说明](mori-matcha-commerce/docs/API.md) |
+| 浏览新版源码 | [mori-matcha-commerce/](mori-matcha-commerce/) |
 
-商品图片只做格式压缩，未改动图中商品及文字。50g 和 100g 来自图片标注，正式使用前仍需核实。页面未新增认证、产地、等级、营养功效或配送时效承诺。
+预览站目前是私有的。商城没有商家后台按钮；只有获得站点访问权限并且被授权的管理员账号才能进后台。第一次绑定主管理员还需要单独交付的激活码。
 
-上线前：替换临时品牌名称、核对产品与图片信息、提供店铺和两件商品的实际链接，再逐个验证目标。规格切换只用于预览，不替顾客选择 TikTok 内的购买规格。
+新版可在后台改商品名称、介绍、价格、主图、详情图和规格，也有库存、体验订单、售后、客户、优惠、配送、内容、评价、客服、报表、员工权限和日志。**体验订单不会真实收款、退款或下快递单。** 上传到 GitHub 只是保存源码，不会自动更新已经发布的预览站。正式营业前还需接通支付、物流等服务；现状和步骤见上面的说明。
 
-字体使用 URW Base35 的 P052 子集。原始字体、转换脚本及 AGPL-3 字体许可证保存在 assets 中。
+## 早期静态版本
 
-
-## Mori Matcha 商城与后台
-
-新版商城源码位于 [`mori-matcha-commerce/`](mori-matcha-commerce/)；包含商品管理、订单、库存、售后与管理员权限，以及 [使用说明](mori-matcha-commerce/docs/使用说明.md) 和 [API 对接文档](mori-matcha-commerce/docs/API.md)。根目录的 `dist/` 保留早期静态展示版本。
+dist/index.html 是原来的双语商品展示页；dist/review.html 用于电脑、平板、手机尺寸预览；dist/config.js 放店铺及商品目标链接；dist/styles.css 和 dist/app.js 分别是样式和交互。这个早期版本没有商家后台或交易后端。商品图只做格式压缩，图中商品与文字未改；图示的 50g、100g 规格在正式使用前仍需核实。URW Base35 的 P052 字体子集、转换脚本和 AGPL-3 字体许可证保存在 assets 中。
