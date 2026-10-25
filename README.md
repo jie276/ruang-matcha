@@ -13,3 +13,8 @@
 上线前：替换临时品牌名称、核对产品与图片信息、提供店铺和两件商品的实际链接，再逐个验证目标。规格切换只用于预览，不替顾客选择 TikTok 内的购买规格。
 
 字体使用 URW Base35 的 P052 子集。原始字体、转换脚本及 AGPL-3 字体许可证保存在 assets 中。
+
+
+## Mori Matcha 商城与后台
+
+新版商城源码位于 [`mori-matcha-commerce/`](mori-matcha-commerce/)；包含商品管理、订单、库存、售后与管理员权限，以及 [使用说明](mori-matcha-commerce/docs/使用说明.md) 和 [API 对接文档](mori-matcha-commerce/docs/API.md)。根目录的 `dist/` 保留早期静态展示版本。

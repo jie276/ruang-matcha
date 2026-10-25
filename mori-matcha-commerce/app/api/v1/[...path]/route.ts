@@ -1,0 +1,4 @@
+import {handle} from '@/lib/commerce';
+export const dynamic='force-dynamic';
+async function route(req:Request,ctx:{params:Promise<{path:string[]}>}){try{const {path}=await ctx.params;const result=await handle(req,path);if(result instanceof Response)return result;return Response.json({success:true,data:result},{headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}})}catch(e:any){const validation=e.name==='ZodError';const status=e.status||(validation?422:e instanceof SyntaxError?400:500);const message=validation?e.issues.map((x:any)=>x.path.join('.')+': '+x.message).join('; '):status===500?'服务暂时不可用，请稍后重试':e.message;return Response.json({success:false,error:{code:status,message}},{status,headers:{'Cache-Control':'no-store'}})}}
+export const GET=route,POST=route,PATCH=route,DELETE=route;

@@ -1,0 +1,17 @@
+import {env} from 'cloudflare:workers';
+import {getChatGPTUser} from '@/app/chatgpt-auth';
+import {sampleProducts,defaultHero,roles,type Product} from './model';
+export const db=()=>{if(!env.DB)throw new Error('数据库未配置');return env.DB};
+export const uid=()=>crypto.randomUUID();
+export const now=()=>new Date().toISOString();
+export const sql=(q:string,...v:any[])=>db().prepare(q).bind(...v);
+export const json=(x:any)=>JSON.stringify(x);
+export function fail(msg:string,status=400):never{throw Object.assign(new Error(msg),{status})}
+export async function identity(){const u=await getChatGPTUser();if(!u)fail('请先登录',401);return u}
+export async function admin(permission?:string){const u=await identity();const a:any=await sql('SELECT * FROM admins WHERE user_id=? AND active=1',u.userId).first();if(!a)fail('该账号没有管理员权限',403);if(permission&&!roles[a.role]?.includes('*')&&!roles[a.role]?.includes(permission))fail('当前角色无权进行此操作',403);return {...a,userId:u.userId}}
+export function log(actor:string,action:string,target:string,detail:any={}){return sql('INSERT INTO audit_logs (id,actor,action,target,detail,created_at) VALUES (?,?,?,?,?,?)',uid(),actor,action,target,json(detail),now())}
+export async function getProducts(activeOnly=false):Promise<Product[]>{const [{results:p},{results:s}]=await Promise.all([sql('SELECT * FROM products').all<any>(),sql('SELECT id,product_id,label,price,stock,active FROM skus').all<any>()]);return p.map(x=>({...JSON.parse(x.data),id:x.id,revision:x.revision,variants:s.filter(v=>v.product_id===x.id).map(({product_id,...v})=>v)})).filter(x=>!activeOnly||x.status==='active')}
+export async function getRecords(kind:string){const {results}=await sql('SELECT * FROM records WHERE kind=? ORDER BY rowid DESC',kind).all<any>();return results.map(r=>({...JSON.parse(r.data),id:r.id,revision:r.revision}))}
+export async function seed(actor:string){const statements:any[]=[];for(const p of sampleProducts){const {variants,...meta}=p;statements.push(sql('INSERT OR IGNORE INTO products (id,data,revision) VALUES (?,?,1)',p.id,json(meta)));for(const v of variants)statements.push(sql('INSERT OR IGNORE INTO skus (id,product_id,label,price,stock,active) VALUES (?,?,?,?,?,1)',v.id,p.id,v.label,v.price,v.stock))}for(const [id,kind,data] of [['hero','content',defaultHero],['tin','categories',{name:'罐装抹茶',nameEN:'Tins',status:'active'}],['pouch','categories',{name:'袋装抹茶',nameEN:'Pouches',status:'active'}],['shipping-default','shipping',{name:'马来西亚标准配送',fee:600,freeAbove:8000,countries:'MY',status:'active'}],['store','settings',{name:'Mori Matcha',currency:'MYR',contact:'',lowStock:10,announcement:'来自贵州铜仁的一抹绿意',returnsPolicy:'如需售后，请在订单详情提交申请并描述问题。具体退换条件以上线时公布的政策为准。',privacyPolicy:'本预览仅用于测试，请勿填写真实个人信息。'}]] as any[])statements.push(sql('INSERT OR IGNORE INTO records (id,kind,data,revision) VALUES (?,?,?,1)',id,kind,json(data)));statements.push(log(actor,'initialize','store'));await db().batch(statements)}
+export function safeImage(v:string){if(v.startsWith('/assets/')||v.startsWith('/api/v1/media/'))return true;try{return new URL(v).protocol==='https:'}catch{return false}}
+export async function limits(key:string,max:number,seconds=900){const window=Math.floor(Date.now()/1000/seconds);const r:any=await sql('INSERT INTO rate_limits (key,attempts,window) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN window=excluded.window THEN attempts+1 ELSE 1 END,window=excluded.window RETURNING attempts',key,window).first();if(r.attempts>max)fail('操作过于频繁，请稍后再试',429)}
