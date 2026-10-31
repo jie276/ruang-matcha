@@ -1,44 +1,1613 @@
-'use client';
-import {useEffect,useRef,useState} from 'react';
-import {ArrowUpRight,Leaf,ShoppingBag,Heart,Search,Minus,Plus,Trash2,Package,Check} from 'lucide-react';
-import {api} from '@/lib/api';
-import {sampleProducts,defaultHero,money,statusLabels,type Product} from '@/lib/model';
-import Modal from './modal';
-import TeaMotion from './tea-motion';
-const copy:any={zh:{shop:'选购抹茶',ritual:'冲泡日常',story:'铜仁茶香',orders:'我的订单',bag:'购物袋',explore:'挑一份绿意',origin:'中国 · 贵州铜仁',collection:'找到属于你的那一抹绿',intro:'一罐、一袋、一杯。用喜欢的方式，把抹茶融入日常。',all:'全部抹茶',tin:'罐装',pouch:'袋装',search:'搜索抹茶…',add:'加入购物袋',detail:'商品详情',sample:'体验版 · 当前价格与库存为示例，不收取真实款项。',favorites:'我的收藏',empty:'这里还没有商品。',checkout:'去结算',subtotal:'小计',out:'暂时售罄',shopRange:'查看全部抹茶',storyTitle:'从铜仁的茶叶，\n到你手中的一杯。',storyCopy:'Mori Matcha 选用贵州铜仁茶叶。让一抹熟悉的绿色，在不同的城市、不同的日常里，陪你留住一小段属于自己的时间。',powder:'抹茶粉',size:'50g / 100g · 以具体规格为准',notes:['贵州铜仁茶叶','饮品与烘焙','按喜好调配'],steps:['先筛粉，再加水','轻轻搅匀','加上喜欢的搭配'],stepDesc:['取适量抹茶粉，少量多次加入温水。','用茶筅或搅拌器将粉与水充分混合。','依口味加入牛奶、冰块，或用于烘焙。']},en:{shop:'Shop matcha',ritual:'The ritual',story:'Our origin',orders:'My orders',bag:'Bag',explore:'Explore matcha',origin:'TONGREN, GUIZHOU · CHINA',collection:'Find your daily green.',intro:'A tin, a pouch, a little daily pause. Make matcha your own.',all:'All matcha',tin:'Tins',pouch:'Pouches',search:'Search matcha…',add:'Add to bag',detail:'Product details',sample:'Preview · Sample prices and stock. No real payment is taken.',favorites:'Saved favourites',empty:'Nothing here just yet.',checkout:'Continue to checkout',subtotal:'Subtotal',out:'Out of stock',shopRange:'Shop the range',storyTitle:'From Tongren tea leaves.\nTo your everyday cup.',storyCopy:'Made with tea leaves from Tongren, Guizhou. A familiar green, a little unhurried moment — wherever your day takes you.',powder:'Matcha powder',size:'50g / 100g · see each variant',notes:['Tongren tea leaves','Drinks & baking','Make it your own'],steps:['Sift, then add water','Whisk a little','Make it yours'],stepDesc:['Add warm water a little at a time to your matcha powder.','Use a whisk or frother to mix the powder and water.','Add milk, ice, or try it in your next weekend bake.']},ms:{shop:'Beli matcha',ritual:'Ritual',story:'Asal kami',orders:'Pesanan saya',bag:'Beg',explore:'Terokai matcha',origin:'TONGREN, GUIZHOU · CHINA',collection:'Cari hijau harian anda.',intro:'Setin, sepek, saat kecil untuk diri sendiri.',all:'Semua matcha',tin:'Tin',pouch:'Pek',search:'Cari matcha…',add:'Tambah ke beg',detail:'Butiran produk',sample:'Pratonton · Harga dan stok contoh. Tiada bayaran sebenar.',favorites:'Kegemaran',empty:'Belum ada produk.',checkout:'Teruskan pesanan',subtotal:'Jumlah kecil',out:'Kehabisan stok',shopRange:'Lihat pilihan',storyTitle:'Daun teh dari Tongren.\nUntuk cawan harian anda.',storyCopy:'Diperbuat daripada daun teh dari Tongren, Guizhou. Nikmati saat tenang dengan secawan matcha, mengikut rentak anda.',powder:'Serbuk matcha',size:'50g / 100g · lihat varian',notes:['Teh dari Tongren','Minuman & bakeri','Ikut cita rasa'],steps:['Ayak, tambah air','Pukul perlahan','Ikut cita rasa'],stepDesc:['Tambah air suam sedikit demi sedikit.','Gaul serbuk dan air dengan pemukul.','Tambah susu, ais atau gunakan dalam bakeri.']}};
-export default function Store(){
- const [lang,setLang]=useState('zh'),[catalog,setCatalog]=useState<any>({products:sampleProducts,hero:defaultHero,shipping:[],ready:false,reviews:[]}),[session,setSession]=useState<any>(null),[error,setError]=useState(''),[query,setQuery]=useState(''),[filter,setFilter]=useState('all'),[favorites,setFavorites]=useState<string[]>([]),[savedOnly,setSavedOnly]=useState(false),[cart,setCart]=useState<{skuId:string;quantity:number}[]>([]),[loaded,setLoaded]=useState(false),[modal,setModal]=useState(''),[selected,setSelected]=useState<Product|null>(null),[variantId,setVariantId]=useState(''),[imageIndex,setImageIndex]=useState(0),[orders,setOrders]=useState<any[]>([]),[aftersales,setAftersales]=useState<any[]>([]),[addresses,setAddresses]=useState<any[]>([]),[tickets,setTickets]=useState<any[]>([]),[shippingId,setShippingId]=useState(''),[coupon,setCoupon]=useState(''),[discount,setDiscount]=useState(0),[busy,setBusy]=useState(false),[toast,setToast]=useState(''),[activeOrder,setActiveOrder]=useState<any>(null),[success,setSuccess]=useState<any>(null);
- const idem=useRef(''),timer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined),t=copy[lang],products:Product[]=catalog.products;
- const notify=(s:string)=>{setToast(s);clearTimeout(timer.current);timer.current=setTimeout(()=>setToast(''),4500)};
- const reload=async()=>{const c=await api('/catalog');setCatalog(c);setShippingId(s=>s||c.shipping[0]?.id||'');setError('')};
- useEffect(()=>{reload().catch(e=>setError(e.message));api('/session').then(setSession).catch(()=>{});try{const c=JSON.parse(localStorage.getItem('mori.cart.v2')||'[]');if(Array.isArray(c))setCart(c.filter(x=>typeof x.skuId==='string'&&Number.isInteger(x.quantity)&&x.quantity>0&&x.quantity<=100));const f=JSON.parse(localStorage.getItem('mori.saved.v2')||'[]');if(Array.isArray(f))setFavorites(f.filter(x=>typeof x==='string'));const l=localStorage.getItem('mori.lang');if(l&&copy[l])setLang(l)}catch{}setLoaded(true);return()=>clearTimeout(timer.current)},[]);
- useEffect(()=>{if(loaded)try{localStorage.setItem('mori.cart.v2',JSON.stringify(cart));localStorage.setItem('mori.saved.v2',JSON.stringify(favorites));localStorage.setItem('mori.lang',lang)}catch{}},[cart,favorites,lang,loaded]);
- useEffect(()=>{setDiscount(0)},[cart]);
- useEffect(()=>{const obs=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('is-visible');obs.unobserve(e.target)}}),{threshold:.08});document.querySelectorAll('.mm-reveal').forEach(e=>obs.observe(e));return()=>obs.disconnect()},[catalog,filter,query,savedOnly]);
- const cartItems=cart.map(i=>{const p=products.find(p=>p.variants.some(v=>v.id===i.skuId));const v=p?.variants.find(v=>v.id===i.skuId);return p&&v?{...i,product:p,variant:v}:null}).filter(Boolean) as any[],subtotal=cartItems.reduce((s,i)=>s+i.variant.price*i.quantity,0),sh=catalog.shipping.find((x:any)=>x.id===shippingId),shippingFee=sh?(sh.freeAbove>0&&subtotal-discount>=sh.freeAbove?0:sh.fee):0,total=subtotal-discount+shippingFee;
- const name=(p:Product)=>lang==='zh'?p.name:p.nameEN||p.name,desc=(p:Product)=>lang==='zh'?p.description:p.descriptionEN||p.description;
- const changeQty=(id:string,d:number)=>setCart(c=>c.map(i=>i.skuId===id?{...i,quantity:Math.min(100,i.quantity+d)}:i).filter(i=>i.quantity>0));
- const add=(p:Product,id:string)=>{const v=p.variants.find(v=>v.id===id)!,n=cart.find(i=>i.skuId===id)?.quantity||0;if(v.stock<=n){notify(t.out);return}setCart(c=>n?c.map(i=>i.skuId===id?{...i,quantity:i.quantity+1}:i):[...c,{skuId:id,quantity:1}]);notify(lang==='zh'?'一份绿意已放入购物袋 🌿':'Added to your bag 🌿')};
- const openProduct=(p:Product)=>{setSelected(p);setVariantId(p.variants[0]?.id);setImageIndex(0);setModal('product')};
- const signIn=()=>{location.href='/signin-with-chatgpt?return_to=%2F'};
- const openOrders=async()=>{if(!session?.user){signIn();return}setModal('orders');setBusy(true);try{const [o,a]=await Promise.all([api('/orders'),api('/my/aftersales')]);setOrders(o);setAftersales(a)}catch(e:any){notify(e.message)}finally{setBusy(false)}};
- const checkout=async()=>{if(!catalog.ready){notify('商店正在准备中，暂不能提交订单');return}if(!session?.user){signIn();return}setBusy(true);try{setAddresses(await api('/my/addresses'));idem.current=crypto.randomUUID();setModal('checkout')}catch(e:any){notify(e.message)}finally{setBusy(false)}};
- const submitOrder=async(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();if(busy)return;const f=Object.fromEntries(new FormData(e.currentTarget));setBusy(true);try{const customer={name:f.name,phone:f.phone,email:f.email,address:f.address,city:f.city,state:f.state,postcode:f.postcode,note:f.note};const o=await api('/orders','POST',{idempotencyKey:idem.current,items:cartItems.map(i=>({skuId:i.skuId,quantity:i.quantity})),customer,shippingId,coupon:discount>0?coupon:'',acknowledgeDemo:true});if(f.saveAddress){const {email,note,...a}=customer;await api('/my/addresses','POST',a).catch(()=>notify('订单已创建，地址未能保存'))}setSuccess(o);setCart([]);setModal('success');reload().catch(()=>{})}catch(e:any){notify(e.message)}finally{setBusy(false)}};
- const run=async(fn:()=>Promise<any>)=>{if(busy)return;setBusy(true);try{await fn()}catch(e:any){notify(e.message)}finally{setBusy(false)}};
- const hero=catalog.hero||defaultHero,visible=products.filter(p=>(filter==='all'||p.category===filter)&&(!savedOnly||favorites.includes(p.id))&&(name(p)+' '+desc(p)).toLowerCase().includes(query.toLowerCase())),sv=selected?.variants.find(v=>v.id===variantId),close=()=>setModal('');
- return <><TeaMotion/><div className="topline"><span className="dot"/><span>{catalog.settings?.announcement||'来自贵州铜仁的一抹绿意 · A softer kind of green'}</span></div><header className="site-header"><div className="header-inner"><a className="brand" href="#home" aria-label="Mori Matcha"><span className="brand-mark"><Leaf size={24}/></span><span><span className="brand-word">MORI MATCHA</span><span className="brand-sub">A softer kind of green</span></span></a><nav className="nav-links"><a href="#shop">{t.shop}</a><a href="#ritual">{t.ritual}</a><a href="#story">{t.story}</a></nav><div className="header-actions"><button className="lang-button" onClick={()=>setLang(l=>l==='zh'?'en':l==='en'?'ms':'zh')}>{lang==='zh'?'中 / EN':lang==='en'?'EN / BM':'BM / 中'}</button><button className="mm-icon" aria-label={t.favorites} aria-pressed={savedOnly} onClick={()=>{setSavedOnly(!savedOnly);document.getElementById('shop')?.scrollIntoView({behavior:'smooth'})}}><Heart size={18} fill={savedOnly?'currentColor':'none'}/></button><button className="orders-button" onClick={openOrders}>{t.orders}</button><button className="bag-button" onClick={()=>setModal('cart')}><ShoppingBag size={15}/><span>{t.bag}</span><span className="bag-count">{cart.reduce((s,i)=>s+i.quantity,0)}</span></button></div></div></header>
- <main id="storeView"><div className="page-wrap"><section className="hero" id="home" style={{display:hero.enabled===false?'none':undefined}}><div className="hero-copy"><div className="eyebrow">{t.origin}</div><h1 className="serif mm-hero-title">{(lang==='zh'?hero.title:hero.titleEN||hero.title).split('\n').map((s:string,i:number)=><span key={i}>{s}{i===0&&<br/>}</span>)}</h1><p>{lang==='zh'?hero.description:hero.descriptionEN||hero.description}</p><div className="hero-actions"><a className="primary-button" href="#shop">{t.explore}<span className="round-arrow"><ArrowUpRight size={17}/></span></a><a className="secondary-button" href="#story">{t.story}</a></div><div className="hero-notes">{t.notes.map((n:string)=><span key={n}><i/>{n}</span>)}</div></div><div className="hero-visual"><div className="floating-chip"><Leaf size={13}/> TONGREN · GUIZHOU</div><div className="hero-product-card"><div className="hero-product-image"><img src={hero.image} alt={t.powder}/></div><div className="hero-product-foot"><div><strong>{t.powder}</strong><small>{t.size}</small></div><span className="mm-origin-seal">铜<br/>仁</span></div></div></div></section>
- <section className="section" id="shop"><div className="section-heading"><div><div className="section-kicker">THE MATCHA SHELF</div><h2 className="serif">{savedOnly?t.favorites:t.collection}</h2></div><p>{t.intro}</p></div><div className="shop-tools"><div className="filters">{[['all',t.all],...(catalog.categories?.length?catalog.categories:[{id:'tin',name:t.tin},{id:'pouch',name:t.pouch}]).map((c:any)=>[c.id,lang==='zh'?c.name:c.nameEN||c.name])].map(([id,label]:any)=><button key={id} className={'filter-button '+(filter===id?'active':'')} onClick={()=>setFilter(id)}>{label}</button>)}</div><label className="search-box"><Search size={16}/><input aria-label={t.search} placeholder={t.search} type="search" value={query} onChange={e=>setQuery(e.target.value)}/></label></div>{error&&<div className="mm-notice">{error} <button onClick={()=>reload().catch(e=>setError(e.message))}>重新加载</button></div>}<div className="mm-products">{visible.map(p=><article className="mm-product mm-reveal" key={p.id}><div className="mm-product-photo"><button className="mm-product-photo-link" onClick={()=>openProduct(p)} aria-label={name(p)}><img src={p.images[0]} alt={name(p)} loading="lazy"/></button><span className="mm-product-tag">{p.category==='tin'?t.tin:t.pouch} · {p.variants.map(v=>v.label).join(' / ')}</span><button className={'mm-heart '+(favorites.includes(p.id)?'selected':'')} aria-label={t.favorites+' '+name(p)} aria-pressed={favorites.includes(p.id)} onClick={()=>setFavorites(f=>f.includes(p.id)?f.filter(id=>id!==p.id):[...f,p.id])}><Heart size={20} fill={favorites.includes(p.id)?'currentColor':'none'}/></button></div><div className="mm-product-copy"><div className="section-kicker">MORI MATCHA · TONGREN</div><h3>{name(p)}</h3><p>{desc(p)}</p><div className="mm-variants">{p.variants.map(v=><span key={v.id}>{v.label} · {money(v.price)}</span>)}</div><div className="mm-product-bottom"><strong>{money(Math.min(...p.variants.map(v=>v.price)))}{p.variants.length>1&&<small> +</small>}</strong><button className="mm-add" disabled={!p.variants.some(v=>v.stock>0)} onClick={()=>p.variants.length>1?openProduct(p):add(p,p.variants[0].id)}>{p.variants.some(v=>v.stock>0)?t.add:t.out}<Plus size={17}/></button></div><button className="mm-text-link" onClick={()=>openProduct(p)}>{t.detail} <ArrowUpRight size={13}/></button></div></article>)}</div>{!visible.length&&<div className="mm-empty"><Leaf/>{t.empty}<button onClick={()=>{setQuery('');setFilter('all');setSavedOnly(false)}}>{t.all}</button></div>}<p className="demo-price-note">{t.sample}</p></section>
- <section className="mm-ritual mm-reveal" id="ritual">{t.steps.map((s:string,i:number)=><div key={s}><span className="mm-step">0{i+1}</span><h3>{s}</h3><p>{t.stepDesc[i]}</p></div>)}</section><section className="mm-story mm-reveal" id="story"><div className="mm-story-art"><img src="/assets/background.jpg" alt="茶园与绿意 / Tea garden" loading="lazy"/><span>TEA LEAF ORIGIN<strong>贵州 · 铜仁</strong></span></div><div className="mm-story-copy"><div className="section-kicker">ROOTED IN TONGREN</div><h2 className="serif">{t.storyTitle.split('\n').map((s:string,i:number)=><span key={i}>{s}<br/></span>)}</h2><p>{t.storyCopy}</p><a className="primary-button" href="#shop">{t.shopRange}<ArrowUpRight size={17}/></a></div></section></div></main>
- <footer className="mm-footer"><a href="#home" className="brand-word">MORI MATCHA</a><p>A softer kind of green. From Tongren, with care.</p><div><a href="#shop">{t.shop}</a><button onClick={()=>setModal('policy')}>{lang==='zh'?'配送与退换 / 隐私':'Store policies'}</button><button onClick={()=>{if(!session?.user){signIn();return}setModal('contact');api('/tickets').then(setTickets).catch(e=>notify(e.message))}}>{lang==='zh'?'联系我们':'Contact us'}</button><a href="#home">↑</a></div><small>© {new Date().getFullYear()} Mori Matcha</small></footer>
- {modal==='cart'&&<Modal title={t.bag} onClose={close}>{!cartItems.length?<div className="mm-empty"><ShoppingBag/>{t.empty}<button className="mm-btn" onClick={close}>{t.shop}</button></div>:<><div className="mm-cart-list">{cartItems.map(i=><div className="mm-cart-row" key={i.skuId}><img src={i.product.images[0]} alt=""/><div><strong>{name(i.product)}</strong><small>{i.variant.label} · {money(i.variant.price)}</small><div className="mm-quantity"><button aria-label="减少 / Decrease" onClick={()=>changeQty(i.skuId,-1)}><Minus size={13}/></button><span>{i.quantity}</span><button aria-label="增加 / Increase" disabled={i.quantity>=i.variant.stock} onClick={()=>changeQty(i.skuId,1)}><Plus size={13}/></button></div></div><div><strong>{money(i.quantity*i.variant.price)}</strong><button className="mm-text-link" aria-label="移除 / Remove" onClick={()=>setCart(c=>c.filter(x=>x.skuId!==i.skuId))}><Trash2 size={14}/></button></div></div>)}</div><div className="mm-total"><span>{t.subtotal}</span><strong>{money(subtotal)}</strong></div><p className="mm-muted">{t.sample}</p><button className="mm-btn full" disabled={busy||!catalog.ready} onClick={checkout}>{t.checkout}<ArrowUpRight size={17}/></button></>}</Modal>}
- {modal==='product'&&selected&&<Modal title={name(selected)} onClose={close} wide><div className="mm-detail"><div><img className="mm-detail-main" src={selected.images[imageIndex]||selected.images[0]} alt={name(selected)}/><div className="mm-thumbnails">{selected.images.map((s,i)=><button key={s+i} onClick={()=>setImageIndex(i)} aria-label={'图片 '+(i+1)}><img src={s} alt=""/></button>)}</div></div><div><p>{desc(selected)}</p><div className="mm-detail-variants">{selected.variants.map(v=><button key={v.id} className={v.id===variantId?'selected':''} onClick={()=>setVariantId(v.id)}>{v.label} · {money(v.price)}</button>)}</div><p className="mm-muted">{lang==='zh'?'可用库存':'Available'}: {sv?.stock}</p><button className="mm-btn full" disabled={!sv?.stock} onClick={()=>add(selected,variantId)}>{t.add}<Plus size={17}/></button><dl className="mm-specs"><dt>茶叶产地 / Origin</dt><dd>{selected.origin}</dd><dt>配料 / Ingredients</dt><dd>{selected.ingredients}</dd><dt>储存 / Storage</dt><dd>{selected.storage}</dd></dl><p className="mm-muted">{t.sample}</p></div></div>{selected.detailImages.map((s,i)=><img key={s+i} className="mm-detail-image" src={s} alt={'商品介绍图 '+(i+1)} loading="lazy"/>)}{catalog.reviews.filter((r:any)=>r.productId===selected.id).map((r:any)=><blockquote key={r.id}>{'★'.repeat(r.rating)}<p>{r.text}</p></blockquote>)}</Modal>}
- {modal==='checkout'&&<Modal title="收货信息 · Delivery details" onClose={close}><div className="mm-notice">当前为体验环境，请填写测试信息。不会扣款，也不会安排真实发货。<br/>Test environment. No charge or real delivery.</div><form onSubmit={submitOrder} className="mm-form" id="checkout-form">{addresses.length>0&&<label className="full">已保存地址 / Saved addresses<select defaultValue="" onChange={e=>{const a=addresses.find(a=>a.id===e.target.value);if(a){const f=document.getElementById('checkout-form') as HTMLFormElement;['name','phone','address','city','state','postcode'].forEach(k=>{(f.elements.namedItem(k) as HTMLInputElement).value=a[k]})}}}><option value="">选择地址 / Choose</option>{addresses.map(a=><option key={a.id} value={a.id}>{a.name} · {a.address}</option>)}</select></label>}{[['name','收货人 / Name','text'],['phone','联系电话 / Phone','tel'],['email','邮箱 / Email','email'],['city','城市 / City','text'],['state','州 / State','text'],['postcode','邮编 / Postcode','text']].map(([key,label,type])=><label key={key}>{label}<input name={key} type={type} required maxLength={160} defaultValue={key==='email'?session?.user?.email:''} pattern={key==='postcode'?'[0-9]{5}':undefined}/></label>)}<label className="full">详细地址 / Address<textarea name="address" required minLength={5} maxLength={500}/></label><label className="full">备注 / Note<input name="note" maxLength={500}/></label><label className="full">配送方式 / Delivery<select value={shippingId} onChange={e=>setShippingId(e.target.value)} required>{catalog.shipping.map((s:any)=><option key={s.id} value={s.id}>{s.name} · {money(s.fee)}{s.freeAbove>0?' · 满 '+money(s.freeAbove)+' 免运费':''}</option>)}</select></label><div className="full mm-inline"><input aria-label="优惠码 / Coupon" value={coupon} placeholder="优惠码 / Coupon" onChange={e=>{setCoupon(e.target.value);setDiscount(0)}}/><button type="button" className="mm-btn light" disabled={busy||!coupon} onClick={()=>run(async()=>{const d=await api('/coupon/quote','POST',{code:coupon,subtotal});setDiscount(d.discount);notify('优惠码已应用 / Applied')})}>应用 / Apply</button></div><label className="full mm-check"><input type="checkbox" name="saveAddress"/>保存该测试地址 / Save address</label><div className="full mm-check"><input type="checkbox" required id="demo-ack"/><label htmlFor="demo-ack">我了解这是测试订单，不会支付真实款项。<br/>I understand this is a test order.</label></div><div className="full mm-bill"><span>{t.subtotal}<b>{money(subtotal)}</b></span><span>优惠 / Discount<b>− {money(discount)}</b></span><span>配送 / Delivery<b>{money(shippingFee)}</b></span><strong>合计 / Total<b>{money(total)}</b></strong></div><button className="mm-btn full" type="submit" disabled={busy||!shippingId}>{busy?'提交中…':'提交测试订单 / Place test order'}</button></form></Modal>}
- {modal==='success'&&<Modal title="订单已创建 / Order created" onClose={close}><div className="mm-empty"><Check size={36}/><h3>{success?.id}</h3><p>{money(success?.total)} · 待付款 / Awaiting payment</p><p className="mm-muted">这是测试订单，未产生真实扣款。<br/>No payment was taken.</p><button className="mm-btn" onClick={openOrders}>{t.orders}</button></div></Modal>}
- {modal==='orders'&&<Modal title={t.orders} onClose={close} wide>{busy&&<p>正在加载…</p>}{!busy&&!orders.length&&<div className="mm-empty"><Package/>还没有订单 / No orders yet</div>}{orders.map(o=><div className="mm-order" key={o.id}><div className="mm-between"><strong>{o.id}</strong><span className="mm-badge">{statusLabels[o.status]}</span></div><small>{new Date(o.createdAt).toLocaleString()} · 体验订单 / Test order</small>{o.items.map((i:any)=><div className="mm-between" key={i.skuId}><span>{i.name} · {i.label} × {i.quantity}</span><b>{money(i.price*i.quantity)}</b></div>)}<div className="mm-between"><span>{o.carrier} {o.tracking}</span><strong>{money(o.total)}</strong></div>{aftersales.filter(a=>a.orderId===o.id).map(a=><div className="mm-notice" key={a.id}>售后：{statusLabels[a.status]} {a.reply}<small>退款服务尚未接入，审核通过不代表已退款。</small></div>)}<div className="mm-actions">{o.status==='pending_payment'&&<button className="mm-btn light" disabled={busy} onClick={()=>run(async()=>{await api('/orders/'+o.id+'/cancel','POST',{});setOrders(await api('/orders'));reload().catch(()=>{})})}>取消订单 / Cancel</button>}{!['pending_payment','cancelled'].includes(o.status)&&<button className="mm-btn light" onClick={()=>{setActiveOrder(o);setModal('aftersales')}}>申请售后 / After-sales</button>}{o.status==='completed'&&<button className="mm-btn light" onClick={()=>{setActiveOrder(o);setModal('review')}}>评价 / Review</button>}</div></div>)}</Modal>}
- {modal==='aftersales'&&activeOrder&&<Modal title="申请售后 / After-sales" onClose={close}><form className="mm-form" onSubmit={e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));run(async()=>{await api('/orders/'+activeOrder.id+'/aftersales','POST',{reason:f.reason,description:f.description,amount:Math.round(Number(f.amount)*100)});notify('申请已提交 / Request submitted');await openOrders()})}}><label className="full">原因 / Reason<input required name="reason" maxLength={160}/></label><label className="full">问题描述 / Description<textarea name="description" maxLength={3000}/></label><label className="full">申请金额 / Requested amount (RM)<input name="amount" type="number" min="0" max={activeOrder.total/100} step="0.01" required defaultValue={(activeOrder.total/100).toFixed(2)}/></label><p className="mm-notice full">此处仅提交测试申请；未接入实际退款。</p><button className="mm-btn full" disabled={busy}>提交 / Submit</button></form></Modal>}
- {modal==='review'&&activeOrder&&<Modal title="订单评价 / Review" onClose={close}><form className="mm-form" onSubmit={e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));run(async()=>{await api('/reviews','POST',{...f,orderId:activeOrder.id,rating:Number(f.rating)});notify('评价已提交，审核后显示');close()})}}><label className="full">商品<select name="productId">{activeOrder.items.map((i:any)=><option key={i.skuId} value={i.productId}>{i.name}</option>)}</select></label><label className="full">评分 / Rating<select name="rating">{[5,4,3,2,1].map(n=><option key={n} value={n}>{'★'.repeat(n)}</option>)}</select></label><label className="full">评价 / Review<textarea name="text" required maxLength={3000}/></label><button className="mm-btn full" disabled={busy}>提交 / Submit</button></form></Modal>}
- {modal==='contact'&&<Modal title="联系我们 / Contact us" onClose={close}>{catalog.settings?.contact&&<p>{catalog.settings.contact}</p>}<form className="mm-form" onSubmit={e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));run(async()=>{await api('/tickets','POST',f);setTickets(await api('/tickets'));notify('留言已提交 / Message received')})}}><label className="full">主题 / Subject<input name="subject" required maxLength={160}/></label><label className="full">留言 / Message<textarea name="message" required maxLength={3000}/></label><button className="mm-btn full" disabled={busy}>发送 / Send</button></form>{tickets.map(t=><div className="mm-order" key={t.id}><strong>{t.subject}</strong><p>{t.message}</p><p className="mm-notice">{t.reply||'等待回复 / Waiting for reply'}</p></div>)}</Modal>}
- {modal==='policy'&&<Modal title="配送、售后与隐私 / Store policies" onClose={close}><h3>配送 / Delivery</h3>{catalog.shipping.map((s:any)=><p key={s.id}>{s.name} · {money(s.fee)}{s.freeAbove>0?' · 满 '+money(s.freeAbove)+' 免运费':''}</p>)}<h3>售后 / After-sales</h3><p>{catalog.settings?.returnsPolicy||'请在订单详情提交售后申请。'}</p><h3>隐私 / Privacy</h3><p>{catalog.settings?.privacyPolicy||'本预览仅用于测试，请勿填写真实个人信息。'}</p><p className="mm-muted">{t.sample}</p></Modal>}
- {toast&&<div className="mm-toast" role="status">{toast}</div>}</>
+"use client";
+
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
+import {
+  ArrowUpRight,
+  Leaf,
+  ShoppingBag,
+  Heart,
+  Search,
+  Minus,
+  Plus,
+  Trash2,
+  Package,
+  Check,
+} from "lucide-react";
+import { api } from "@/lib/api";
+import { defaultHero, money, type Product } from "@/lib/model";
+import Modal from "./modal";
+import TeaMotion from "./tea-motion";
+import { getCopy, isLanguage, orderStatus, type Language } from "./store-copy";
+import {
+  localized,
+  platformUrl,
+  publicProducts,
+  restoredCheckoutKey,
+  storedCart,
+  variantImage,
+  type Catalog,
+  type Session,
+  type CartEntry,
+  type CartItem,
+  type Order,
+  type Aftersale,
+  type Address,
+  type Ticket,
+} from "./store-data";
+
+const initialCatalog: Catalog = {
+  products: [],
+  categories: [],
+  hero: defaultHero,
+  shipping: [],
+  ready: false,
+  reviews: [],
+};
+const locale = { zh: "zh-CN", en: "en-MY", ms: "ms-MY" };
+
+export default function Store() {
+  const [lang, setLang] = useState<Language>("zh");
+  const [catalog, setCatalog] = useState<Catalog>(initialCatalog);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [savedOnly, setSavedOnly] = useState(false);
+  const [cart, setCart] = useState<CartEntry[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [modal, setModal] = useState("");
+  const [selectedId, setSelectedId] = useState("");
+  const [variantId, setVariantId] = useState("");
+  const [galleryImage, setGalleryImage] = useState("");
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [aftersales, setAftersales] = useState<Aftersale[]>([]);
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [shippingId, setShippingId] = useState("");
+  const [coupon, setCoupon] = useState("");
+  const [discount, setDiscount] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState("");
+  const [activeOrder, setActiveOrder] = useState<Order | null>(null);
+  const [success, setSuccess] = useState<Order | null>(null);
+  const [hasPendingOrder, setHasPendingOrder] = useState(false);
+  const idempotencyKey = useRef("");
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const t = getCopy(lang);
+  const products = publicProducts(catalog.products, catalog.categories);
+  const categories = catalog.categories.filter(
+    (category) => category.status === "active",
+  );
+  const storeName = catalog.settings?.name?.trim() || "Mori Matcha";
+  const hero = catalog.hero || defaultHero;
+  const selected = products.find((product) => product.id === selectedId);
+  const selectedVariant = selected?.variants.find(
+    (variant) => variant.id === variantId,
+  );
+  const detailImage = selected
+    ? galleryImage || variantImage(selected, selectedVariant)
+    : "";
+  const productName = (product: Product) =>
+    localized(lang, product.name, product.nameEN, product.nameMS);
+  const description = (product: Product) =>
+    localized(
+      lang,
+      product.description,
+      product.descriptionEN,
+      product.descriptionMS,
+    );
+  const categoryName = (id: string) => {
+    const category = categories.find((item) => item.id === id);
+    return category
+      ? localized(lang, category.name, category.nameEN, category.nameMS)
+      : t.categoryFallback;
+  };
+  const cartItems: CartItem[] = cart.flatMap((item) => {
+    const product = products.find((product) =>
+      product.variants.some((variant) => variant.id === item.skuId),
+    );
+    const variant = product?.variants.find(
+      (variant) => variant.id === item.skuId,
+    );
+    return product && variant ? [{ ...item, product, variant }] : [];
+  });
+  const unavailableItems = catalogLoaded
+    ? cart.filter(
+        (item) => !cartItems.some((valid) => valid.skuId === item.skuId),
+      )
+    : [];
+  const stockExceeded = cartItems.some(
+    (item) => item.quantity > item.variant.stock,
+  );
+  const subtotal = cartItems.reduce(
+    (sum, item) => sum + item.variant.price * item.quantity,
+    0,
+  );
+  const shipping = catalog.shipping.find((item) => item.id === shippingId);
+  const shippingFee = shipping
+    ? shipping.freeAbove > 0 && subtotal - discount >= shipping.freeAbove
+      ? 0
+      : shipping.fee
+    : 0;
+  const total = Math.max(0, subtotal - discount) + shippingFee;
+  const canCheckout =
+    catalog.ready &&
+    cartItems.length > 0 &&
+    !unavailableItems.length &&
+    !stockExceeded &&
+    !!shipping;
+  const effectiveFilter = categories.some((category) => category.id === filter)
+    ? filter
+    : "all";
+  const visible = products.filter(
+    (product) =>
+      (effectiveFilter === "all" || product.category === effectiveFilter) &&
+      (!savedOnly || favorites.includes(product.id)) &&
+      `${productName(product)} ${description(product)}`
+        .toLowerCase()
+        .includes(query.toLowerCase()),
+  );
+  const whatsappUrl = platformUrl(catalog.settings?.whatsappUrl);
+  const platforms = [
+    { name: "Shopee", url: platformUrl(catalog.settings?.shopeeUrl) },
+    { name: "TikTok Shop", url: platformUrl(catalog.settings?.tiktokUrl) },
+  ];
+
+  const notify = useCallback((message: string) => {
+    setToast(message);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setToast(""), 4500);
+  }, []);
+  const reportError = (cause: unknown) =>
+    notify(
+      lang === "zh" && cause instanceof Error ? cause.message : t.requestFailed,
+    );
+  const reload = useCallback(async () => {
+    const next = await api<Catalog>("/catalog");
+    setCatalog(next);
+    setCatalogLoaded(true);
+    setShippingId((current) =>
+      next.shipping.some((item) => item.id === current)
+        ? current
+        : next.shipping[0]?.id || "",
+    );
+    setDiscount(0);
+    setError("");
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void Promise.resolve()
+      .then(reload)
+      .catch((cause) => {
+        if (active) setError(cause instanceof Error ? cause.message : "Error");
+      });
+    void api<Session>("/session")
+      .then((value) => {
+        if (active) setSession(value);
+      })
+      .catch(() => {});
+    // Local storage is read after hydration so the first server and client render agree.
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      try {
+        const savedCart = storedCart(
+          JSON.parse(localStorage.getItem("mori.cart.v2") || "[]"),
+        );
+        setCart(savedCart);
+        try {
+          idempotencyKey.current = restoredCheckoutKey(
+            JSON.parse(sessionStorage.getItem("mori.checkout.v1") || "null"),
+            savedCart,
+          );
+          setHasPendingOrder(!!idempotencyKey.current);
+        } catch {
+          /* A blocked session store does not prevent this visit's retries. */
+        }
+        const saved: unknown = JSON.parse(
+          localStorage.getItem("mori.saved.v2") || "[]",
+        );
+        if (Array.isArray(saved))
+          setFavorites(
+            saved.filter((item): item is string => typeof item === "string"),
+          );
+        const language = localStorage.getItem("mori.lang");
+        if (isLanguage(language)) setLang(language);
+      } catch {
+        /* A browser can disable storage; shopping still works for this visit. */
+      }
+      setLoaded(true);
+    });
+    return () => {
+      active = false;
+      clearTimeout(timer.current);
+    };
+  }, [reload]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      localStorage.setItem("mori.cart.v2", JSON.stringify(cart));
+      localStorage.setItem("mori.saved.v2", JSON.stringify(favorites));
+      localStorage.setItem("mori.lang", lang);
+    } catch {
+      /* Storage is optional. */
+    }
+  }, [cart, favorites, lang, loaded]);
+
+  useEffect(() => {
+    document.documentElement.lang = locale[lang];
+    document.title = `${storeName} · ${t.shop}`;
+  }, [lang, storeName, t.shop]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) =>
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+            observer.unobserve(entry.target);
+          }
+        }),
+      { threshold: 0.08 },
+    );
+    document
+      .querySelectorAll(".mm-reveal")
+      .forEach((element) => observer.observe(element));
+    return () => observer.disconnect();
+  }, [catalog, effectiveFilter, query, savedOnly]);
+
+  const updateCart = (
+    next: CartEntry[] | ((current: CartEntry[]) => CartEntry[]),
+  ) => {
+    setCart(next);
+    setDiscount(0);
+    idempotencyKey.current = "";
+    setHasPendingOrder(false);
+    try {
+      sessionStorage.removeItem("mori.checkout.v1");
+    } catch {
+      /* Storage is optional. */
+    }
+  };
+  const ensureOrderKey = () => {
+    if (!idempotencyKey.current) idempotencyKey.current = crypto.randomUUID();
+    setHasPendingOrder(true);
+    try {
+      sessionStorage.setItem(
+        "mori.checkout.v1",
+        JSON.stringify({
+          key: idempotencyKey.current,
+          cart: JSON.stringify(cart),
+        }),
+      );
+    } catch {
+      /* Keep the in-memory key when storage is blocked. */
+    }
+    return idempotencyKey.current;
+  };
+  const changeQuantity = (skuId: string, amount: number) => {
+    const stock =
+      cartItems.find((item) => item.skuId === skuId)?.variant.stock || 0;
+    updateCart((current) =>
+      current
+        .map((item) =>
+          item.skuId === skuId
+            ? {
+                ...item,
+                quantity:
+                  amount > 0
+                    ? Math.min(100, stock, item.quantity + amount)
+                    : item.quantity + amount,
+              }
+            : item,
+        )
+        .filter((item) => item.quantity > 0),
+    );
+  };
+  const add = (product: Product, skuId: string) => {
+    const variant = product.variants.find((item) => item.id === skuId);
+    const quantity = cart.find((item) => item.skuId === skuId)?.quantity || 0;
+    if (!variant || variant.stock <= quantity || quantity >= 100) {
+      notify(t.out);
+      return;
+    }
+    updateCart((current) =>
+      quantity
+        ? current.map((item) =>
+            item.skuId === skuId
+              ? { ...item, quantity: item.quantity + 1 }
+              : item,
+          )
+        : [...current, { skuId, quantity: 1 }],
+    );
+    notify(t.added);
+  };
+  const openProduct = (product: Product) => {
+    setSelectedId(product.id);
+    setVariantId(product.variants[0]?.id || "");
+    setGalleryImage("");
+    setModal("product");
+  };
+  const close = () => setModal("");
+  // Hosted authentication is outside the client router and requires a full navigation.
+  const signIn = () => {
+    window.location.assign(
+      new URL("/signin-with-chatgpt?return_to=%2F", window.location.origin),
+    );
+  };
+  const openOrders = async () => {
+    if (!session?.user) {
+      signIn();
+      return;
+    }
+    setModal("orders");
+    setBusy(true);
+    try {
+      const [nextOrders, nextAftersales] = await Promise.all([
+        api<Order[]>("/orders"),
+        api<Aftersale[]>("/my/aftersales"),
+      ]);
+      setOrders(nextOrders);
+      setAftersales(nextAftersales);
+    } catch (cause) {
+      reportError(cause);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const openContact = () => {
+    setModal("contact");
+    if (session?.user)
+      void api<Ticket[]>("/tickets").then(setTickets).catch(reportError);
+  };
+  const recoverOrder = async () => {
+    if (!idempotencyKey.current) return false;
+    const previous = await api<Order[]>("/orders");
+    const recovered = previous.find(
+      (order) => order.idempotencyKey === idempotencyKey.current,
+    );
+    if (!recovered) return false;
+    setSuccess(recovered);
+    updateCart([]);
+    setModal("success");
+    void reload().catch(() => {});
+    return true;
+  };
+  const checkout = async () => {
+    if (!session?.user) {
+      signIn();
+      return;
+    }
+    setBusy(true);
+    try {
+      if (await recoverOrder()) return;
+      if (!canCheckout) {
+        notify(
+          stockExceeded
+            ? t.stockChanged
+            : unavailableItems.length
+              ? t.unavailable
+              : t.notReady,
+        );
+        return;
+      }
+      setAddresses(await api<Address[]>("/my/addresses"));
+      setModal("checkout");
+    } catch (cause) {
+      reportError(cause);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const submitOrder = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (busy || !canCheckout) return;
+    const form = new FormData(event.currentTarget);
+    const value = (key: string) => String(form.get(key) || "");
+    const orderKey = ensureOrderKey();
+    setBusy(true);
+    try {
+      const customer = {
+        name: value("name"),
+        phone: value("phone"),
+        email: value("email"),
+        address: value("address"),
+        city: value("city"),
+        state: value("state"),
+        postcode: value("postcode"),
+        note: value("note"),
+      };
+      const order = await api<Order>("/orders", "POST", {
+        idempotencyKey: orderKey,
+        items: cartItems.map(({ skuId, quantity }) => ({ skuId, quantity })),
+        customer,
+        shippingId,
+        coupon: discount > 0 ? coupon : "",
+        acknowledgeDemo: true,
+      });
+      if (form.has("saveAddress")) {
+        const address = {
+          name: customer.name,
+          phone: customer.phone,
+          address: customer.address,
+          city: customer.city,
+          state: customer.state,
+          postcode: customer.postcode,
+        };
+        await api("/my/addresses", "POST", address).catch(() =>
+          notify(t.addressNotSaved),
+        );
+      }
+      setSuccess(order);
+      updateCart([]);
+      setModal("success");
+      void reload().catch(() => {});
+    } catch (cause) {
+      // A lost response can follow a committed order; reconcile before another POST.
+      if (await recoverOrder().catch(() => false)) return;
+      reportError(cause);
+      // Refresh stale availability while preserving the key for an uncertain response.
+      await reload().catch(() => {});
+    } finally {
+      setBusy(false);
+    }
+  };
+  const run = async (action: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await action();
+    } catch (cause) {
+      reportError(cause);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const date = (value: string) =>
+    new Date(value).toLocaleString(locale[lang], {
+      timeZone: "Asia/Kuala_Lumpur",
+    });
+
+  return (
+    <>
+      <TeaMotion />
+      <div className="topline">
+        <span className="dot" />
+        <span>{catalog.settings?.announcement || t.origin}</span>
+      </div>
+      <header className="site-header">
+        <div className="header-inner">
+          <a className="brand" href="#home" aria-label={storeName}>
+            <span className="brand-mark">
+              <Leaf size={24} />
+            </span>
+            <span>
+              <span className="brand-word">{storeName}</span>
+              <span className="brand-sub">A softer kind of green</span>
+            </span>
+          </a>
+          <nav className="nav-links">
+            <a href="#shop">{t.shop}</a>
+            <a href="#ritual">{t.ritual}</a>
+            <a href="#story">{t.story}</a>
+          </nav>
+          <div className="header-actions">
+            <select
+              className="lang-button"
+              aria-label={t.language}
+              value={lang}
+              onChange={(event) => {
+                if (isLanguage(event.target.value)) setLang(event.target.value);
+              }}
+            >
+              <option value="zh">中文</option>
+              <option value="en">English</option>
+              <option value="ms">Bahasa Melayu</option>
+            </select>
+            <button
+              className="mm-icon"
+              aria-label={t.favorites}
+              aria-pressed={savedOnly}
+              onClick={() => {
+                setSavedOnly(!savedOnly);
+                document
+                  .getElementById("shop")
+                  ?.scrollIntoView({ behavior: "smooth" });
+              }}
+            >
+              <Heart size={18} fill={savedOnly ? "currentColor" : "none"} />
+            </button>
+            <button className="orders-button" onClick={openOrders}>
+              {t.orders}
+            </button>
+            <button className="bag-button" onClick={() => setModal("cart")}>
+              <ShoppingBag size={15} />
+              <span>{t.bag}</span>
+              <span className="bag-count">
+                {cart.reduce((sum, item) => sum + item.quantity, 0)}
+              </span>
+            </button>
+          </div>
+        </div>
+      </header>
+      <main id="storeView">
+        <div className="page-wrap">
+          <section
+            className="hero"
+            id="home"
+            style={{ display: hero.enabled === false ? "none" : undefined }}
+          >
+            <div className="hero-copy">
+              <div className="eyebrow">{t.origin}</div>
+              <h1 className="serif mm-hero-title">
+                {localized(lang, hero.title, hero.titleEN, hero.titleMS)
+                  .split("\n")
+                  .map((line, index) => (
+                    <span key={index}>
+                      {index > 0 && <br />}
+                      {line}
+                    </span>
+                  ))}
+              </h1>
+              <p>
+                {localized(
+                  lang,
+                  hero.description,
+                  hero.descriptionEN,
+                  hero.descriptionMS,
+                ).replaceAll("Mori Matcha", storeName)}
+              </p>
+              <div className="hero-actions">
+                <a className="primary-button" href="#shop">
+                  {t.explore}
+                  <span className="round-arrow">
+                    <ArrowUpRight size={17} />
+                  </span>
+                </a>
+                <button className="secondary-button" onClick={openContact}>
+                  {t.contact}
+                </button>
+              </div>
+              <div className="hero-notes">
+                {t.notes.map((note) => (
+                  <span key={note}>
+                    <i />
+                    {note}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="hero-visual">
+              <div className="floating-chip">
+                <Leaf size={13} /> TONGREN · GUIZHOU
+              </div>
+              <div className="hero-product-card">
+                <div className="hero-product-image">
+                  <img src={hero.image} alt={t.powder} />
+                </div>
+                <div className="hero-product-foot">
+                  <div>
+                    <strong>{t.powder}</strong>
+                    <small>{t.size}</small>
+                  </div>
+                  <span className="mm-origin-seal">
+                    铜<br />仁
+                  </span>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section className="mm-platforms" aria-label={t.buyElsewhere}>
+            <strong>{t.buyElsewhere}</strong>
+            {platforms.map((platform) =>
+              platform.url ? (
+                <a
+                  key={platform.name}
+                  className="mm-btn light"
+                  href={platform.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {platform.name}
+                  <ArrowUpRight size={15} />
+                </a>
+              ) : (
+                <span key={platform.name} className="mm-platform-unavailable">
+                  {platform.name} ·{" "}
+                  {catalogLoaded
+                    ? t.notConfigured
+                    : error
+                      ? t.requestFailed
+                      : t.loading}
+                </span>
+              ),
+            )}
+            <button className="mm-text-link" onClick={openContact}>
+              {t.contact}
+              <ArrowUpRight size={14} />
+            </button>
+            <small>{t.externalNotice}</small>
+          </section>
+          <section className="section" id="shop">
+            <div className="section-heading">
+              <div>
+                <div className="section-kicker">THE MATCHA SHELF</div>
+                <h2 className="serif">
+                  {savedOnly ? t.favorites : t.collection}
+                </h2>
+              </div>
+              <p>{t.intro}</p>
+            </div>
+            <div className="shop-tools">
+              <div className="filters">
+                {[
+                  { id: "all", label: t.all },
+                  ...categories.map((category) => ({
+                    id: category.id,
+                    label: categoryName(category.id),
+                  })),
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    className={`filter-button ${effectiveFilter === item.id ? "active" : ""}`}
+                    onClick={() => setFilter(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              <label className="search-box">
+                <Search size={16} />
+                <input
+                  aria-label={t.search}
+                  placeholder={t.search}
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </label>
+            </div>
+            {error && (
+              <div className="mm-notice" role="alert">
+                {lang === "zh" ? error : t.requestFailed}{" "}
+                <button
+                  onClick={() =>
+                    void reload().catch((cause) =>
+                      setError(
+                        cause instanceof Error
+                          ? cause.message
+                          : t.requestFailed,
+                      ),
+                    )
+                  }
+                >
+                  {t.reload}
+                </button>
+              </div>
+            )}
+            <div className="mm-products">
+              {visible.map((product) => (
+                <article className="mm-product mm-reveal" key={product.id}>
+                  <div className="mm-product-photo">
+                    <button
+                      className="mm-product-photo-link"
+                      onClick={() => openProduct(product)}
+                      aria-label={productName(product)}
+                    >
+                      <img
+                        src={variantImage(product, product.variants[0])}
+                        alt={productName(product)}
+                        loading="lazy"
+                      />
+                    </button>
+                    <span className="mm-product-tag">
+                      {categoryName(product.category)} ·{" "}
+                      {product.variants
+                        .map((variant) => variant.label)
+                        .join(" / ")}
+                    </span>
+                    <button
+                      className={`mm-heart ${favorites.includes(product.id) ? "selected" : ""}`}
+                      aria-label={`${t.favorites} ${productName(product)}`}
+                      aria-pressed={favorites.includes(product.id)}
+                      onClick={() =>
+                        setFavorites((current) =>
+                          current.includes(product.id)
+                            ? current.filter((id) => id !== product.id)
+                            : [...current, product.id],
+                        )
+                      }
+                    >
+                      <Heart
+                        size={20}
+                        fill={
+                          favorites.includes(product.id)
+                            ? "currentColor"
+                            : "none"
+                        }
+                      />
+                    </button>
+                  </div>
+                  <div className="mm-product-copy">
+                    <div className="section-kicker">{storeName} · TONGREN</div>
+                    <h3>{productName(product)}</h3>
+                    <p>{description(product)}</p>
+                    <div className="mm-variants">
+                      {product.variants.map((variant) => (
+                        <span key={variant.id}>
+                          {variant.label} · {money(variant.price)}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="mm-product-bottom">
+                      <strong>
+                        {money(
+                          Math.min(
+                            ...product.variants.map((variant) => variant.price),
+                          ),
+                        )}
+                        {product.variants.length > 1 && <small> +</small>}
+                      </strong>
+                      <button
+                        className="mm-add"
+                        disabled={
+                          !product.variants.some((variant) => variant.stock > 0)
+                        }
+                        onClick={() =>
+                          product.variants.length > 1
+                            ? openProduct(product)
+                            : add(product, product.variants[0].id)
+                        }
+                      >
+                        {product.variants.some((variant) => variant.stock > 0)
+                          ? t.add
+                          : t.out}
+                        <Plus size={17} />
+                      </button>
+                    </div>
+                    <button
+                      className="mm-text-link"
+                      onClick={() => openProduct(product)}
+                    >
+                      {t.detail} <ArrowUpRight size={13} />
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+            {!visible.length && (
+              <div className="mm-empty">
+                <Leaf />
+                {catalogLoaded ? t.empty : error ? t.requestFailed : t.loading}
+                {catalogLoaded && (
+                  <button
+                    onClick={() => {
+                      setQuery("");
+                      setFilter("all");
+                      setSavedOnly(false);
+                    }}
+                  >
+                    {t.all}
+                  </button>
+                )}
+              </div>
+            )}
+            <p className="demo-price-note">{t.sample}</p>
+          </section>
+          <section className="mm-ritual mm-reveal" id="ritual">
+            {t.steps.map((step, index) => (
+              <div key={step}>
+                <span className="mm-step">0{index + 1}</span>
+                <h3>{step}</h3>
+                <p>{t.stepDesc[index]}</p>
+              </div>
+            ))}
+          </section>
+          <section className="mm-story mm-reveal" id="story">
+            <div className="mm-story-art">
+              <img
+                src="/assets/background.jpg"
+                alt={t.teaGarden}
+                loading="lazy"
+              />
+              <span>
+                TEA LEAF ORIGIN<strong>贵州 · 铜仁</strong>
+              </span>
+            </div>
+            <div className="mm-story-copy">
+              <div className="section-kicker">ROOTED IN TONGREN</div>
+              <h2 className="serif">
+                {t.storyTitle.split("\n").map((line, index) => (
+                  <span key={index}>
+                    {line}
+                    <br />
+                  </span>
+                ))}
+              </h2>
+              <p>{t.storyCopy.replaceAll("Mori Matcha", storeName)}</p>
+              <a className="primary-button" href="#shop">
+                {t.shopRange}
+                <ArrowUpRight size={17} />
+              </a>
+            </div>
+          </section>
+        </div>
+      </main>
+      <footer className="mm-footer">
+        <a href="#home" className="brand-word">
+          {storeName}
+        </a>
+        <p>A softer kind of green. From Tongren, with care.</p>
+        <div>
+          <a href="#shop">{t.shop}</a>
+          <button onClick={() => setModal("policy")}>{t.policies}</button>
+          <button onClick={openContact}>{t.contact}</button>
+          <a href="#home" aria-label={t.backTop}>
+            ↑
+          </a>
+        </div>
+        <small>{storeName}</small>
+      </footer>
+
+      {modal === "cart" && (
+        <Modal title={t.bag} onClose={close}>
+          {!cart.length ? (
+            <div className="mm-empty">
+              <ShoppingBag />
+              {t.empty}
+              <button className="mm-btn" onClick={close}>
+                {t.shop}
+              </button>
+            </div>
+          ) : (
+            <>
+              {hasPendingOrder && (
+                <p className="mm-notice">{t.pendingOrderNotice}</p>
+              )}
+              {!catalogLoaded && (
+                <p className="mm-notice">
+                  {error ? t.requestFailed : t.loading}
+                </p>
+              )}
+              {unavailableItems.map((item) => (
+                <div className="mm-notice" key={item.skuId}>
+                  {t.unavailable}
+                  <button
+                    className="mm-text-link"
+                    onClick={() =>
+                      updateCart((current) =>
+                        current.filter((entry) => entry.skuId !== item.skuId),
+                      )
+                    }
+                  >
+                    {t.remove}
+                  </button>
+                </div>
+              ))}
+              {stockExceeded && (
+                <p className="mm-error" role="alert">
+                  {t.stockChanged}
+                </p>
+              )}
+              <div className="mm-cart-list">
+                {cartItems.map((item) => (
+                  <div className="mm-cart-row" key={item.skuId}>
+                    <img
+                      src={variantImage(item.product, item.variant)}
+                      alt=""
+                    />
+                    <div>
+                      <strong>{productName(item.product)}</strong>
+                      <small>
+                        {item.variant.label} · {money(item.variant.price)}
+                      </small>
+                      <div className="mm-quantity">
+                        <button
+                          aria-label={t.decrease}
+                          onClick={() => changeQuantity(item.skuId, -1)}
+                        >
+                          <Minus size={13} />
+                        </button>
+                        <span>{item.quantity}</span>
+                        <button
+                          aria-label={t.increase}
+                          disabled={
+                            item.quantity >= Math.min(100, item.variant.stock)
+                          }
+                          onClick={() => changeQuantity(item.skuId, 1)}
+                        >
+                          <Plus size={13} />
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <strong>
+                        {money(item.quantity * item.variant.price)}
+                      </strong>
+                      <button
+                        className="mm-text-link"
+                        aria-label={t.remove}
+                        onClick={() =>
+                          updateCart((current) =>
+                            current.filter(
+                              (entry) => entry.skuId !== item.skuId,
+                            ),
+                          )
+                        }
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mm-total">
+                <span>{t.subtotal}</span>
+                <strong>{money(subtotal)}</strong>
+              </div>
+              <p className="mm-muted">{t.sample}</p>
+              {!catalog.shipping.length && (
+                <p className="mm-notice">{t.shippingUnavailable}</p>
+              )}
+              <button
+                className="mm-btn full"
+                disabled={busy || (!canCheckout && !hasPendingOrder)}
+                onClick={checkout}
+              >
+                {hasPendingOrder ? t.recoverOrder : t.checkout}
+                <ArrowUpRight size={17} />
+              </button>
+            </>
+          )}
+        </Modal>
+      )}
+
+      {modal === "product" && selected && (
+        <Modal title={productName(selected)} onClose={close} wide>
+          <div className="mm-detail">
+            <div>
+              <img
+                className="mm-detail-main"
+                src={detailImage}
+                alt={`${productName(selected)} · ${selectedVariant?.label || ""}`}
+              />
+              <div className="mm-thumbnails">
+                {Array.from(
+                  new Set([
+                    ...selected.images,
+                    ...selected.variants
+                      .map((variant) => variant.image)
+                      .filter((image): image is string => !!image),
+                  ]),
+                ).map((image, index) => (
+                  <button
+                    key={image}
+                    onClick={() => setGalleryImage(image)}
+                    aria-label={`${t.image} ${index + 1}`}
+                    aria-pressed={image === detailImage}
+                  >
+                    <img src={image} alt="" />
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p>{description(selected)}</p>
+              <div className="mm-detail-variants">
+                {selected.variants.map((variant) => (
+                  <button
+                    key={variant.id}
+                    className={variant.id === variantId ? "selected" : ""}
+                    aria-pressed={variant.id === variantId}
+                    onClick={() => {
+                      setVariantId(variant.id);
+                      setGalleryImage("");
+                    }}
+                  >
+                    {variant.label} · {money(variant.price)}
+                  </button>
+                ))}
+              </div>
+              <p className="mm-muted">
+                {t.available}: {selectedVariant?.stock ?? 0}
+              </p>
+              <button
+                className="mm-btn full"
+                disabled={!selectedVariant?.stock}
+                onClick={() => add(selected, variantId)}
+              >
+                {selectedVariant?.stock ? t.add : t.out}
+                <Plus size={17} />
+              </button>
+              <dl className="mm-specs">
+                <dt>{t.originLabel}</dt>
+                <dd>{selected.origin}</dd>
+                <dt>{t.ingredients}</dt>
+                <dd>{selected.ingredients}</dd>
+                <dt>{t.storage}</dt>
+                <dd>{selected.storage}</dd>
+              </dl>
+              <p className="mm-muted">{t.sample}</p>
+            </div>
+          </div>
+          {selected.detailImages.map((image, index) => (
+            <img
+              key={`${image}-${index}`}
+              className="mm-detail-image"
+              src={image}
+              alt={`${t.detail} ${index + 1}`}
+              loading="lazy"
+            />
+          ))}
+          {catalog.reviews
+            .filter((review) => review.productId === selected.id)
+            .map((review) => (
+              <blockquote className="mm-review" key={review.id}>
+                <span aria-label={`${t.rating}: ${review.rating}/5`}>
+                  {"★".repeat(Math.max(0, Math.min(5, review.rating)))}
+                </span>
+                <p>{review.text}</p>
+                {review.reply && (
+                  <div className="mm-notice">
+                    <strong>{t.merchantReply}</strong>
+                    <p>{review.reply}</p>
+                  </div>
+                )}
+              </blockquote>
+            ))}
+        </Modal>
+      )}
+
+      {modal === "checkout" && (
+        <Modal title={t.checkoutTitle} onClose={close}>
+          <div className="mm-notice">{t.testNotice}</div>
+          {hasPendingOrder && (
+            <div className="mm-notice">
+              {t.pendingOrderNotice}
+              <button
+                className="mm-btn light full"
+                disabled={busy}
+                onClick={checkout}
+              >
+                {t.recoverOrder}
+              </button>
+            </div>
+          )}
+          <form onSubmit={submitOrder} className="mm-form" id="checkout-form">
+            {addresses.length > 0 && (
+              <label className="full">
+                {t.savedAddresses}
+                <select
+                  defaultValue=""
+                  onChange={(event) => {
+                    const address = addresses.find(
+                      (item) => item.id === event.target.value,
+                    );
+                    const form = document.getElementById(
+                      "checkout-form",
+                    ) as HTMLFormElement | null;
+                    if (address && form)
+                      for (const key of [
+                        "name",
+                        "phone",
+                        "address",
+                        "city",
+                        "state",
+                        "postcode",
+                      ] as const) {
+                        const field = form.elements.namedItem(key);
+                        if (
+                          field instanceof HTMLInputElement ||
+                          field instanceof HTMLTextAreaElement
+                        )
+                          field.value = address[key];
+                      }
+                  }}
+                >
+                  <option value="">{t.chooseAddress}</option>
+                  {addresses.map((address) => (
+                    <option key={address.id} value={address.id}>
+                      {address.name} · {address.address}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {[
+              {
+                key: "name",
+                label: t.recipient,
+                type: "text",
+                autocomplete: "name",
+              },
+              {
+                key: "phone",
+                label: t.phone,
+                type: "tel",
+                autocomplete: "tel",
+              },
+              {
+                key: "email",
+                label: t.email,
+                type: "email",
+                autocomplete: "email",
+              },
+              {
+                key: "city",
+                label: t.city,
+                type: "text",
+                autocomplete: "address-level2",
+              },
+              {
+                key: "state",
+                label: t.state,
+                type: "text",
+                autocomplete: "address-level1",
+              },
+              {
+                key: "postcode",
+                label: t.postcode,
+                type: "text",
+                autocomplete: "postal-code",
+              },
+            ].map((field) => (
+              <label key={field.key}>
+                {field.label}
+                <input
+                  name={field.key}
+                  type={field.type}
+                  autoComplete={field.autocomplete}
+                  required
+                  maxLength={field.key === "postcode" ? 5 : 160}
+                  defaultValue={
+                    field.key === "email" ? session?.user?.email : ""
+                  }
+                  pattern={field.key === "postcode" ? "[0-9]{5}" : undefined}
+                  inputMode={field.key === "postcode" ? "numeric" : undefined}
+                />
+              </label>
+            ))}
+            <label className="full">
+              {t.address}
+              <textarea
+                name="address"
+                autoComplete="street-address"
+                required
+                minLength={5}
+                maxLength={500}
+              />
+            </label>
+            <label className="full">
+              {t.note}
+              <input name="note" maxLength={500} />
+            </label>
+            <label className="full">
+              {t.delivery}
+              <select
+                value={shippingId}
+                onChange={(event) => setShippingId(event.target.value)}
+                required
+              >
+                {catalog.shipping.map((method) => (
+                  <option key={method.id} value={method.id}>
+                    {method.name} · {money(method.fee)}
+                    {method.freeAbove > 0
+                      ? ` · ${t.freeAbove} ${money(method.freeAbove)}`
+                      : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="full mm-inline">
+              <input
+                aria-label={t.coupon}
+                value={coupon}
+                placeholder={t.coupon}
+                onChange={(event) => {
+                  setCoupon(event.target.value);
+                  setDiscount(0);
+                }}
+              />
+              <button
+                type="button"
+                className="mm-btn light"
+                disabled={busy || !coupon}
+                onClick={() =>
+                  run(async () => {
+                    const quote = await api<{ discount: number }>(
+                      "/coupon/quote",
+                      "POST",
+                      { code: coupon, subtotal },
+                    );
+                    setDiscount(quote.discount);
+                    notify(t.applied);
+                  })
+                }
+              >
+                {t.apply}
+              </button>
+            </div>
+            <label className="full mm-check">
+              <input type="checkbox" name="saveAddress" />
+              {t.saveAddress}
+            </label>
+            <label className="full mm-check">
+              <input type="checkbox" required />
+              {t.demoAck}
+            </label>
+            <div className="full mm-bill">
+              <span>
+                {t.subtotal}
+                <b>{money(subtotal)}</b>
+              </span>
+              <span>
+                {t.discount}
+                <b>− {money(discount)}</b>
+              </span>
+              <span>
+                {t.delivery}
+                <b>{money(shippingFee)}</b>
+              </span>
+              <strong>
+                {t.total}
+                <b>{money(total)}</b>
+              </strong>
+            </div>
+            {!canCheckout && (
+              <p className="mm-error full">
+                {stockExceeded
+                  ? t.stockChanged
+                  : unavailableItems.length
+                    ? t.unavailable
+                    : t.notReady}
+              </p>
+            )}
+            <button
+              className="mm-btn full"
+              type="submit"
+              disabled={busy || !canCheckout}
+            >
+              {busy ? t.submitting : t.placeOrder}
+            </button>
+          </form>
+        </Modal>
+      )}
+
+      {modal === "success" && success && (
+        <Modal title={t.orderCreated} onClose={close}>
+          <div className="mm-empty">
+            <Check size={36} />
+            <h3>{success.id}</h3>
+            <p>
+              {money(success.total)} · {orderStatus(success.status, lang)}
+            </p>
+            <p className="mm-muted">{t.noPayment}</p>
+            {success.status === "pending_payment" && success.expiresAt && (
+              <p>
+                {t.expires}: {date(success.expiresAt)}
+              </p>
+            )}
+            <button className="mm-btn" onClick={openOrders}>
+              {t.orders}
+            </button>
+          </div>
+        </Modal>
+      )}
+      {modal === "orders" && (
+        <Modal title={t.orders} onClose={close} wide>
+          {busy && <p>{t.loading}</p>}
+          {!busy && !orders.length && (
+            <div className="mm-empty">
+              <Package />
+              {t.noOrders}
+            </div>
+          )}
+          {orders.map((order) => (
+            <div className="mm-order" key={order.id}>
+              <div className="mm-between">
+                <strong>{order.id}</strong>
+                <span className="mm-badge">
+                  {orderStatus(order.status, lang)}
+                </span>
+              </div>
+              <small>
+                {date(order.createdAt)} · {t.testOrder}
+              </small>
+              {order.items.map((item) => (
+                <div className="mm-between" key={item.skuId}>
+                  <span>
+                    {item.name} · {item.label} × {item.quantity}
+                  </span>
+                  <b>{money(item.price * item.quantity)}</b>
+                </div>
+              ))}
+              <div className="mm-between">
+                <span>
+                  {order.carrier} {order.tracking}
+                </span>
+                <strong>{money(order.total)}</strong>
+              </div>
+              {order.status === "pending_payment" && order.expiresAt && (
+                <p className="mm-muted">
+                  {t.expires}: {date(order.expiresAt)}
+                </p>
+              )}
+              {order.cancellationReason === "expired" && (
+                <p className="mm-notice">{t.expired}</p>
+              )}
+              {aftersales
+                .filter((request) => request.orderId === order.id)
+                .map((request) => (
+                  <div className="mm-notice" key={request.id}>
+                    {t.aftersales}: {orderStatus(request.status, lang)}{" "}
+                    {request.reply}
+                    <small>{t.refundNotice}</small>
+                  </div>
+                ))}
+              <div className="mm-actions">
+                {order.status === "pending_payment" && (
+                  <button
+                    className="mm-btn light"
+                    disabled={busy}
+                    onClick={() =>
+                      run(async () => {
+                        await api(`/orders/${order.id}/cancel`, "POST", {});
+                        setOrders(await api<Order[]>("/orders"));
+                        await reload();
+                      })
+                    }
+                  >
+                    {t.cancel}
+                  </button>
+                )}
+                {!["pending_payment", "cancelled"].includes(order.status) && (
+                  <button
+                    className="mm-btn light"
+                    onClick={() => {
+                      setActiveOrder(order);
+                      setModal("aftersales");
+                    }}
+                  >
+                    {t.aftersales}
+                  </button>
+                )}
+                {order.status === "completed" && (
+                  <button
+                    className="mm-btn light"
+                    onClick={() => {
+                      setActiveOrder(order);
+                      setModal("review");
+                    }}
+                  >
+                    {t.review}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </Modal>
+      )}
+      {modal === "aftersales" && activeOrder && (
+        <Modal title={t.aftersales} onClose={close}>
+          <form
+            className="mm-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = Object.fromEntries(
+                new FormData(event.currentTarget),
+              );
+              void run(async () => {
+                await api(`/orders/${activeOrder.id}/aftersales`, "POST", {
+                  reason: form.reason,
+                  description: form.description,
+                  amount: Math.round(Number(form.amount) * 100),
+                });
+                notify(t.requestSubmitted);
+                await openOrders();
+              });
+            }}
+          >
+            <label className="full">
+              {t.reason}
+              <input required name="reason" maxLength={160} />
+            </label>
+            <label className="full">
+              {t.issue}
+              <textarea name="description" maxLength={3000} />
+            </label>
+            <label className="full">
+              {t.amount} (RM)
+              <input
+                name="amount"
+                type="number"
+                min="0.01"
+                max={activeOrder.total / 100}
+                step="0.01"
+                required
+                defaultValue={(activeOrder.total / 100).toFixed(2)}
+              />
+            </label>
+            <p className="mm-notice full">{t.aftersalesNotice}</p>
+            <button className="mm-btn full" disabled={busy}>
+              {t.submit}
+            </button>
+          </form>
+        </Modal>
+      )}
+      {modal === "review" && activeOrder && (
+        <Modal title={t.review} onClose={close}>
+          <form
+            className="mm-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = Object.fromEntries(
+                new FormData(event.currentTarget),
+              );
+              void run(async () => {
+                await api("/reviews", "POST", {
+                  ...form,
+                  orderId: activeOrder.id,
+                  rating: Number(form.rating),
+                });
+                notify(t.reviewSubmitted);
+                close();
+              });
+            }}
+          >
+            <label className="full">
+              {t.product}
+              <select name="productId">
+                {activeOrder.items
+                  .filter(
+                    (item, index, items) =>
+                      items.findIndex(
+                        (other) => other.productId === item.productId,
+                      ) === index,
+                  )
+                  .map((item) => (
+                    <option key={item.productId} value={item.productId}>
+                      {item.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="full">
+              {t.rating}
+              <select name="rating">
+                {[5, 4, 3, 2, 1].map((rating) => (
+                  <option key={rating} value={rating}>
+                    {"★".repeat(rating)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="full">
+              {t.review}
+              <textarea name="text" required maxLength={3000} />
+            </label>
+            <button className="mm-btn full" disabled={busy}>
+              {t.submit}
+            </button>
+          </form>
+        </Modal>
+      )}
+
+      {modal === "contact" && (
+        <Modal title={t.contact} onClose={close}>
+          <p className="mm-muted">{t.guestContact}</p>
+          <p className="mm-contact-details">
+            {catalog.settings?.contact ||
+              (!catalogLoaded
+                ? error
+                  ? t.requestFailed
+                  : t.loading
+                : !whatsappUrl
+                  ? t.contactUnavailable
+                  : "")}
+          </p>
+          {whatsappUrl ? (
+            <a
+              className="mm-btn full"
+              href={whatsappUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {t.whatsapp}
+              <ArrowUpRight size={17} />
+            </a>
+          ) : (
+            <p className="mm-muted">
+              WhatsApp ·{" "}
+              {catalogLoaded
+                ? t.notConfigured
+                : error
+                  ? t.requestFailed
+                  : t.loading}
+            </p>
+          )}
+          {session?.user ? (
+            <>
+              <form
+                className="mm-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const form = event.currentTarget;
+                  const message = Object.fromEntries(new FormData(form));
+                  void run(async () => {
+                    await api("/tickets", "POST", message);
+                    form.reset();
+                    notify(t.sent);
+                    setTickets(await api<Ticket[]>("/tickets"));
+                  });
+                }}
+              >
+                <label className="full">
+                  {t.subject}
+                  <input name="subject" required maxLength={160} />
+                </label>
+                <label className="full">
+                  {t.message}
+                  <textarea name="message" required maxLength={3000} />
+                </label>
+                <button className="mm-btn full" disabled={busy}>
+                  {t.send}
+                </button>
+              </form>
+              {tickets.map((ticket) => (
+                <div className="mm-order" key={ticket.id}>
+                  <strong>{ticket.subject}</strong>
+                  <p>{ticket.message}</p>
+                  <p className="mm-notice">{ticket.reply || t.waitingReply}</p>
+                </div>
+              ))}
+            </>
+          ) : (
+            <button className="mm-btn light full" onClick={signIn}>
+              {t.signInMessage}
+            </button>
+          )}
+        </Modal>
+      )}
+      {modal === "policy" && (
+        <Modal title={t.policies} onClose={close}>
+          <h3>{t.delivery}</h3>
+          {catalog.shipping.length ? (
+            catalog.shipping.map((method) => (
+              <p key={method.id}>
+                {method.name} · {money(method.fee)}
+                {method.freeAbove > 0
+                  ? ` · ${t.freeAbove} ${money(method.freeAbove)}`
+                  : ""}
+              </p>
+            ))
+          ) : (
+            <p>{t.shippingUnavailable}</p>
+          )}
+          <h3>{t.aftersales}</h3>
+          <p className="mm-contact-details">
+            {catalog.settings?.returnsPolicy || t.returnsFallback}
+          </p>
+          <h3>{t.privacy}</h3>
+          <p className="mm-contact-details">
+            {catalog.settings?.privacyPolicy || t.privacyFallback}
+          </p>
+          <p className="mm-muted">{t.sample}</p>
+        </Modal>
+      )}
+      {toast && (
+        <div className="mm-toast" role="status">
+          {toast}
+        </div>
+      )}
+    </>
+  );
 }

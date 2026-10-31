@@ -15,6 +15,20 @@
       "when": 1792931507663,
       "tag": "0001_strange_slayback",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793404800000,
+      "tag": "0002_commerce_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793436284784,
+      "tag": "0003_inventory_idempotency",
+      "breakpoints": true
     }
   ]
 }
