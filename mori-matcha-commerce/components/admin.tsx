@@ -40,6 +40,9 @@ import {
 import { api } from "@/lib/api";
 import { money, statusLabels, type Product, type Variant } from "@/lib/model";
 import Modal from "./modal";
+import AdminInventoryAdjustment, {
+  type InventorySelection,
+} from "./admin-inventory";
 
 type ModuleId =
   | "dashboard"
@@ -67,7 +70,7 @@ type ProductDraft = Omit<Product, "id" | "revision"> & {
 type StoreSettings = { name: string; lowStock: number };
 type Bootstrap = {
   permissions: string[];
-  admin: { name: string; role: string };
+  admin: { name: string; role: string; userId: string };
   orderCount: number;
   settings?: StoreSettings;
 };
@@ -326,7 +329,7 @@ export default function Admin() {
   const [editing, setEditing] = useState<AdminRecord | null>(null);
   const [product, setProduct] = useState<ProductDraft | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
-  const [stock, setStock] = useState<(Variant & { name: string }) | null>(null);
+  const [stock, setStock] = useState<InventorySelection | null>(null);
   const [mobile, setMobile] = useState(false);
   const loadVersion = useRef(0);
   const mutationInFlight = useRef(false);
@@ -628,6 +631,18 @@ export default function Admin() {
               <CheckCircle2 size={16} />
               {notice}
             </div>
+          )}
+          {boot && can("inventory") && (
+            <AdminInventoryAdjustment
+              key={boot.admin.userId}
+              userId={boot.admin.userId}
+              stock={stock}
+              onClose={() => setStock(null)}
+              onConfirmed={async () => {
+                setStock(null);
+                await load(tab);
+              }}
+            />
           )}
           {loading ? (
             <div className="mm-admin-loading">
@@ -959,7 +974,11 @@ export default function Admin() {
                                 <button
                                   className="mm-text-link"
                                   onClick={() =>
-                                    setStock({ ...variant, name: item.name })
+                                    setStock({
+                                      ...variant,
+                                      name: item.name,
+                                      userId: boot?.admin.userId || "",
+                                    })
                                   }
                                 >
                                   调整库存
@@ -1361,56 +1380,6 @@ export default function Admin() {
               />
             </>
           )}
-        </Modal>
-      )}
-      {stock && (
-        <Modal
-          title={"库存调整 · " + stock.name + " " + stock.label}
-          onClose={() => setStock(null)}
-        >
-          <p>
-            当前可用库存：<strong>{stock.stock}</strong>
-          </p>
-          <form
-            className="mm-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const values = new FormData(event.currentTarget);
-              void run(async () => {
-                await api("/admin/inventory", "POST", {
-                  skuId: stock.id,
-                  delta: Number(values.get("delta")),
-                  reason: values.get("reason"),
-                });
-                setStock(null);
-                await load(tab);
-              });
-            }}
-          >
-            <label className="full">
-              调整数量（正数入库，负数出库）
-              <input
-                name="delta"
-                required
-                type="number"
-                step="1"
-                min={-stock.stock}
-              />
-            </label>
-            <label className="full">
-              调整原因
-              <input
-                name="reason"
-                required
-                maxLength={160}
-                placeholder="如：采购入库 / 盘点修正"
-              />
-            </label>
-            {error && <p className="mm-error full">{error}</p>}
-            <button className="mm-btn full" disabled={busy}>
-              确认调整
-            </button>
-          </form>
         </Modal>
       )}
       {order && (

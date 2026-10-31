@@ -20,7 +20,12 @@ import {
   expirePendingOrders,
   ORDER_RESERVATION_MINUTES,
 } from "./server";
-import type { OrderRow, OrderSnapshot, ProductRow, RecordKind } from "./commerce-records";
+import type {
+  OrderRow,
+  OrderSnapshot,
+  ProductRow,
+  RecordKind,
+} from "./commerce-records";
 import { sampleProducts, defaultHero, roles } from "./model";
 const txt = z.string().trim().max(5000),
   short = z.string().trim().min(1).max(160),
@@ -832,6 +837,11 @@ export async function handle(req: Request, path: string[]) {
     const a = await admin("inventory"),
       b = z
         .object({
+          operationId: z
+            .string()
+            .uuid()
+            .transform((value) => value.toLowerCase()),
+          expectedAdminUserId: short,
           skuId: short,
           delta: z
             .number()
@@ -842,23 +852,97 @@ export async function handle(req: Request, path: string[]) {
           reason: short,
         })
         .parse(await body(req));
+    if (b.expectedAdminUserId !== a.userId) {
+      fail(
+        "管理员账号已变化，请切回原账号核对库存操作",
+        409,
+        "inventory_actor_changed",
+      );
+    }
+    type Adjustment = {
+      id: string;
+      sku_id: string;
+      delta: number;
+      reason: string;
+      actor_user_id: string | null;
+      created_at: string;
+    };
+    const readAdjustment = () =>
+      sql(
+        "SELECT id,sku_id,delta,reason,actor_user_id,created_at FROM inventory_adjustments WHERE id=?",
+        b.operationId,
+      ).first<Adjustment>();
+    const receipt = (adjustment: Adjustment) => {
+      // Legacy rows have no verified actor_user_id and must never be claimed
+      // as a replay merely because their display name matches this operator.
+      if (
+        adjustment.actor_user_id !== a.userId ||
+        adjustment.sku_id !== b.skuId ||
+        adjustment.delta !== b.delta ||
+        adjustment.reason !== b.reason
+      ) {
+        fail(
+          "该操作编号已用于其他库存调整，请核对原操作",
+          409,
+          "inventory_operation_conflict",
+        );
+      }
+      return {
+        ok: true,
+        operationId: adjustment.id,
+        skuId: adjustment.sku_id,
+        delta: adjustment.delta,
+        reason: adjustment.reason,
+        createdAt: adjustment.created_at,
+      };
+    };
+    const existing = await readAdjustment();
+    if (existing) return receipt(existing);
+    const adjustment: Adjustment = {
+      id: b.operationId,
+      sku_id: b.skuId,
+      delta: b.delta,
+      reason: b.reason,
+      actor_user_id: a.userId,
+      created_at: now(),
+    };
     try {
       await db().batch([
+        // Keep a plain INSERT: OR IGNORE / DO NOTHING could run the BEFORE
+        // INSERT stock trigger and then skip the duplicate ledger row.
         sql(
-          "INSERT INTO inventory_adjustments (id,sku_id,delta,reason,actor,created_at) VALUES (?,?,?,?,?,?)",
-          uid(),
-          b.skuId,
-          b.delta,
-          b.reason,
+          "INSERT INTO inventory_adjustments (id,sku_id,delta,reason,actor,actor_user_id,created_at) VALUES (?,?,?,?,?,?,?)",
+          adjustment.id,
+          adjustment.sku_id,
+          adjustment.delta,
+          adjustment.reason,
           a.name,
-          now(),
+          adjustment.actor_user_id,
+          adjustment.created_at,
         ),
-        log(a.userId, "stock.adjust", b.skuId, b),
+        log(a.userId, "stock.adjust", b.skuId, { ...b, outcome: "success" }),
       ]);
-    } catch {
-      fail("库存不足或SKU不存在", 409);
+    } catch (error) {
+      // Another request may have committed this operation after our first
+      // read. Its original receipt wins even if the stock trigger now rejects
+      // the repeated delta (for example, the first request took stock to zero).
+      const winner = await readAdjustment();
+      if (winner) return receipt(winner);
+      const messages =
+        error instanceof Error
+          ? [
+              error.message,
+              error.cause instanceof Error ? error.cause.message : "",
+            ].join("\n")
+          : "";
+      if (/\binvalid_stock_adjustment\b/.test(messages)) {
+        fail("库存不足或SKU不存在", 409, "inventory_adjustment_rejected");
+      }
+      // Database outages and unrelated constraint failures are not stock
+      // conflicts. Preserve the error so the route returns a server error.
+      throw error;
     }
-    return { ok: true };
+    return receipt(adjustment);
   }
   if (p === "admin/orders" && method === "GET") {
     await admin("orders");

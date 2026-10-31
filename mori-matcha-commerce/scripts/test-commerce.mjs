@@ -62,6 +62,18 @@ assert.equal(
   upgrade.prepare("SELECT stock FROM skus WHERE id=?").get("pouch-100").stock,
   17,
 );
+upgrade.exec(`INSERT INTO inventory_adjustments (id,sku_id,delta,reason,actor,created_at)
+  VALUES ('legacy-adjustment','pouch-100',3,'Legacy intake','Former administrator','2026-01-01T00:00:00.000Z')`);
+const legacyAdjustment = upgrade.prepare("SELECT * FROM inventory_adjustments WHERE id=?").get("legacy-adjustment");
+for (const migration of readdirSync("drizzle").filter((name) => name.endsWith(".sql") && name > "0002_commerce_guards.sql").sort()) {
+  upgrade.exec(readFileSync(resolve("drizzle", migration), "utf8"));
+}
+assert.deepEqual(
+  { ...upgrade.prepare("SELECT * FROM inventory_adjustments WHERE id=?").get("legacy-adjustment") },
+  { ...legacyAdjustment, actor_user_id: null },
+  "upgrading preserves historical adjustments without guessing their account identity",
+);
+assert.equal(upgrade.prepare("SELECT stock FROM skus WHERE id=?").get("pouch-100").stock, 20);
 upgrade.close();
 
 const context = new AsyncLocalStorage();
@@ -145,6 +157,10 @@ for (const file of ["model", "server", "commerce"]) {
     }).outputText,
   );
 }
+writeFileSync(resolve(dir, "route.mjs"), ts.transpileModule(
+  readFileSync("app/api/v1/[...path]/route.ts", "utf8").replace(/from ['"]@\/lib\/commerce['"]/g, "from './commerce.mjs'"),
+  { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } },
+).outputText);
 const objects = new Map();
 globalThis.__commerceTest.env.BUCKET = {
   put: async (key, bytes, options) =>
@@ -152,6 +168,7 @@ globalThis.__commerceTest.env.BUCKET = {
   get: async (key) => objects.get(key),
 };
 const { handle } = await import(resolve(dir, "commerce.mjs"));
+const { POST: httpRoute } = await import(resolve(dir, "route.mjs"));
 const owner = {
   userId: "test-owner",
   email: "owner@example.test",
@@ -174,6 +191,9 @@ function call(
   user = owner,
   origin = "https://unit.test",
 ) {
+  if (path === "admin/inventory" && method === "POST" && data) {
+    data = { expectedAdminUserId: user?.userId, ...data };
+  }
   return context.run(user, () =>
     handle(
       new Request("https://unit.test/api/v1/" + path, {
@@ -187,6 +207,11 @@ function call(
       path.split("/"),
     ),
   );
+}
+function httpAdjust(data, user = owner) {
+  return context.run(user, () => httpRoute(new Request("https://unit.test/api/v1/admin/inventory", {
+    method: "POST", headers: { Origin: "https://unit.test", "Content-Type": "application/json" }, body: JSON.stringify({ expectedAdminUserId: user?.userId, ...data }),
+  }), { params: Promise.resolve({ path: ["admin", "inventory"] }) }));
 }
 const rejectsStatus = (fn, status) =>
   assert.rejects(fn, (error) => error.status === status);
@@ -401,6 +426,7 @@ try {
   assert.equal(product.nameMS, "Ujian");
   assert.equal(product.variants[0].image, "/assets/pouch50.jpg");
   await call("admin/inventory", "POST", {
+    operationId: crypto.randomUUID(),
     skuId: sku.id,
     delta: 5,
     reason: "QA intake",
@@ -409,6 +435,7 @@ try {
   await rejectsStatus(
     () =>
       call("admin/inventory", "POST", {
+        operationId: crypto.randomUUID(),
         skuId: sku.id,
         delta: -26,
         reason: "invalid",
@@ -416,6 +443,134 @@ try {
     409,
   );
   assert.equal(stock(sku.id), 25);
+
+  // Stock adjustment retries must replay the receipt, never the trigger's stock
+  // mutation. Barriers force duplicate requests past the same stale preflight.
+  const inventoryProduct = await productFixture([{ stock: 20 }, { stock: 30 }]);
+  const inventorySku = inventoryProduct.variants[0].id;
+  const inventoryOperation = {
+    operationId: crypto.randomUUID(), skuId: inventorySku, delta: 5, reason: "  Repeat-safe intake  ",
+  };
+  const adjust = (payload, user = owner) => call("admin/inventory", "POST", payload, user);
+  const adjustmentRow = (id) => sqlite.prepare("SELECT * FROM inventory_adjustments WHERE id=?").get(id);
+  const receipt = await adjust(inventoryOperation);
+  assert.deepEqual(Object.keys(receipt).sort(), ["ok", "operationId", "skuId", "delta", "reason", "createdAt"].sort());
+  assert.deepEqual(receipt, {
+    ok: true, operationId: inventoryOperation.operationId, skuId: inventorySku,
+    delta: 5, reason: "Repeat-safe intake", createdAt: adjustmentRow(inventoryOperation.operationId).created_at,
+  });
+  assert.equal(adjustmentRow(inventoryOperation.operationId).actor_user_id, owner.userId);
+  // Treat the first response as lost; retries still get the original receipt.
+  for (let retry = 0; retry < 20; retry++) assert.deepEqual(await adjust(inventoryOperation), receipt);
+  assert.deepEqual(await adjust({ ...inventoryOperation, operationId: inventoryOperation.operationId.toUpperCase(), skuId: ` ${inventorySku} ` }), receipt);
+  sqlite.prepare("UPDATE admins SET name=? WHERE user_id=?").run("Renamed administrator", owner.userId);
+  assert.deepEqual(await adjust(inventoryOperation), receipt, "display-name changes do not change operation ownership");
+  assert.equal(stock(inventorySku), 25);
+  assert.equal(logs("stock.adjust", inventorySku).length, 1);
+  assert.equal(JSON.parse(logs("stock.adjust", inventorySku)[0].detail).operationId, inventoryOperation.operationId);
+  for (const changed of [
+    { delta: 6 }, { skuId: inventoryProduct.variants[1].id }, { reason: "Another operation" },
+  ]) await rejectsStatus(() => adjust({ ...inventoryOperation, ...changed }), 409);
+  const warehouseUser = { userId: "warehouse-retry-test", email: "warehouse@example.test", displayName: owner.displayName };
+  await call("admin/staff", "POST", { userId: warehouseUser.userId, email: warehouseUser.email, name: owner.displayName, role: "manager", active: 1 });
+  await rejectsStatus(() => adjust(inventoryOperation, warehouseUser), 409);
+  assert.equal(stock(inventorySku), 25);
+  assert.equal(logs("stock.adjust", inventorySku).length, 1);
+  const { operationId: omittedOperationId, ...missingKey } = inventoryOperation;
+  assert.ok(omittedOperationId);
+  await assert.rejects(() => adjust(missingKey), (error) => error.issues?.some((issue) => issue.path[0] === "operationId"));
+  await assert.rejects(() => adjust({ ...inventoryOperation, operationId: "invalid" }), (error) => error.issues?.some((issue) => issue.path[0] === "operationId"));
+  const missingKeyResponse = await httpAdjust(missingKey);
+  assert.equal(missingKeyResponse.status, 422);
+  assert.equal((await missingKeyResponse.json()).error.code, 422);
+  const conflictResponse = await httpAdjust({ ...inventoryOperation, delta: 6 });
+  assert.equal(conflictResponse.status, 409);
+  assert.equal((await conflictResponse.json()).error.code, "inventory_operation_conflict");
+  assert.equal(stock(inventorySku), 25);
+
+  const simultaneous = { ...inventoryOperation, operationId: crypto.randomUUID(), delta: 2 };
+  const duplicateResults = await race(
+    (statement) => statement.query.includes("FROM inventory_adjustments") && statement.values.includes(simultaneous.operationId),
+    Array.from({ length: 20 }, () => () => adjust(simultaneous)),
+  );
+  assert.ok(duplicateResults.every((result) => result.status === "fulfilled"));
+  for (const result of duplicateResults) assert.deepEqual(result.value, duplicateResults[0].value);
+  assert.equal(stock(inventorySku), 27);
+  assert.equal(logs("stock.adjust", inventorySku).length, 2);
+  assert.deepEqual(await adjust(inventoryOperation), receipt, "receipt does not change with subsequent stock mutations");
+
+  const conflictId = crypto.randomUUID();
+  const conflictingResults = await race(
+    (statement) => statement.query.includes("FROM inventory_adjustments") && statement.values.includes(conflictId),
+    [3, 7].map((delta) => () => adjust({ ...inventoryOperation, operationId: conflictId, delta })),
+  );
+  oneSuccess(conflictingResults);
+  assert.equal(stock(inventorySku), 27 + adjustmentRow(conflictId).delta);
+  assert.equal(logs("stock.adjust", inventorySku).length, 3);
+
+  const subtractAll = { ...inventoryOperation, operationId: crypto.randomUUID(), delta: -stock(inventorySku), reason: "Empty bin" };
+  const subtractResults = await race(
+    (statement) => statement.query.includes("FROM inventory_adjustments") && statement.values.includes(subtractAll.operationId),
+    [() => adjust(subtractAll), () => adjust(subtractAll)],
+  );
+  assert.ok(subtractResults.every((result) => result.status === "fulfilled"));
+  assert.deepEqual(subtractResults[0].value, subtractResults[1].value);
+  assert.equal(stock(inventorySku), 0);
+  assert.deepEqual(await adjust(subtractAll), subtractResults[0].value, "replaying a deduction succeeds even when stock is now zero");
+  assert.equal(logs("stock.adjust", inventorySku).length, 4);
+  const invalidDeduction = { ...inventoryOperation, operationId: crypto.randomUUID(), delta: -1 };
+  await rejectsStatus(() => adjust(invalidDeduction), 409);
+  const rejectedResponse = await httpAdjust(invalidDeduction);
+  assert.equal(rejectedResponse.status, 409);
+  assert.equal((await rejectedResponse.json()).error.code, "inventory_adjustment_rejected");
+  assert.equal(adjustmentRow(invalidDeduction.operationId), undefined);
+  assert.equal(stock(inventorySku), 0);
+  assert.equal(logs("stock.adjust", inventorySku).length, 4);
+
+  const rollbackOperation = { ...inventoryOperation, operationId: crypto.randomUUID() };
+  sqlite.exec(`CREATE TRIGGER reject_test_stock_audit BEFORE INSERT ON audit_logs
+    WHEN NEW.action='stock.adjust' AND NEW.target='${inventorySku}' BEGIN
+      SELECT RAISE(ABORT,'test_adjustment_audit_unavailable');
+    END;`);
+  try {
+    await assert.rejects(() => adjust(rollbackOperation), (error) => error.status !== 409 && /test_adjustment_audit_unavailable/.test(String(error)));
+    const failureResponse = await httpAdjust(rollbackOperation);
+    assert.equal(failureResponse.status, 500);
+    assert.deepEqual(await failureResponse.json(), { success: false, error: { code: 500, message: "服务暂时不可用，请稍后重试" } });
+  } finally {
+    sqlite.exec("DROP TRIGGER reject_test_stock_audit");
+  }
+  assert.equal(adjustmentRow(rollbackOperation.operationId), undefined);
+  assert.equal(stock(inventorySku), 0, "audit failure rolls back the stock trigger and adjustment row");
+  assert.equal(logs("stock.adjust", inventorySku).length, 4);
+  await adjust(rollbackOperation);
+  assert.equal(stock(inventorySku), 5);
+  assert.equal(logs("stock.adjust", inventorySku).length, 5);
+  const legacyOperation = { ...inventoryOperation, operationId: crypto.randomUUID(), delta: 1, reason: "Legacy intake" };
+  sqlite.prepare("INSERT INTO inventory_adjustments (id,sku_id,delta,reason,actor,created_at) VALUES (?,?,?,?,?,?)")
+    .run(legacyOperation.operationId, inventorySku, 1, legacyOperation.reason, "Renamed administrator", "2026-01-01T00:00:00.000Z");
+  await rejectsStatus(() => adjust(legacyOperation), 409);
+  assert.equal(stock(inventorySku), 6, "a matching display name cannot claim a historical row without stable actor identity");
+
+  // Identity can change after the browser's bootstrap GET but before its POST.
+  // The expected actor is a guard only; it must never grant another user's role.
+  const accountSwitchSku = (await productFixture()).variants[0].id;
+  const accountSwitchRequest = {
+    operationId: crypto.randomUUID(), skuId: accountSwitchSku, delta: 4,
+    reason: "Account switch guard", expectedAdminUserId: owner.userId,
+  };
+  const missingActorResponse = await httpAdjust({ ...accountSwitchRequest, expectedAdminUserId: undefined });
+  assert.equal(missingActorResponse.status, 422);
+  const switchedResponse = await httpAdjust(accountSwitchRequest, warehouseUser);
+  assert.equal(switchedResponse.status, 409);
+  assert.equal((await switchedResponse.json()).error.code, "inventory_actor_changed");
+  assert.equal(stock(accountSwitchSku), 20);
+  assert.equal(adjustmentRow(accountSwitchRequest.operationId), undefined);
+  assert.equal(logs("stock.adjust", accountSwitchSku).length, 0);
+  await adjust(accountSwitchRequest, owner);
+  assert.equal(stock(accountSwitchSku), 24);
+  assert.equal(adjustmentRow(accountSwitchRequest.operationId).actor_user_id, owner.userId);
+  assert.equal(logs("stock.adjust", accountSwitchSku).length, 1);
 
   const settings = (await call("admin/records/settings"))[0];
   await call("admin/records/settings/store", "PATCH", {
@@ -992,7 +1147,7 @@ try {
   assert.equal((await call("catalog")).products.length, 0);
   assert.equal((await call("admin/reports")).realRevenue, 0);
   console.log(
-    "PASS: real-controller SQLite integration: authorization, image validation, server pricing, stock rollback, concurrent idempotency/oversell/cancellation/SKU ownership/category deletion/order CAS, expiry and exact-once stock return, truthful audit outcomes, public config/Malay/variant images/review replies, draft validation, category visibility, RBAC, CSRF and demo revenue.",
+    "PASS: real-controller SQLite integration: authorization, image validation, server pricing, stock rollback, concurrent order/inventory idempotency, inventory receipts/error codes/migration, oversell/cancellation/SKU ownership/category deletion/order CAS, expiry and exact-once stock return, truthful audit outcomes, public order privacy/config/Malay/variant images/review replies, draft validation, category visibility, RBAC, CSRF and demo revenue.",
   );
 } finally {
   readHook = undefined;

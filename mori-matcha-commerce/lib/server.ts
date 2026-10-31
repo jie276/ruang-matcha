@@ -25,8 +25,11 @@ export const sql = (query: string, ...values: unknown[]) =>
     .bind(...values);
 export const json = (value: unknown) => JSON.stringify(value);
 export const ORDER_RESERVATION_MINUTES = 30;
-export function fail(message: string, status = 400): never {
-  throw Object.assign(new Error(message), { status });
+export function fail(message: string, status = 400, code?: string): never {
+  throw Object.assign(new Error(message), {
+    status,
+    ...(code ? { code } : {}),
+  });
 }
 export async function identity() {
   const user = await getChatGPTUser();

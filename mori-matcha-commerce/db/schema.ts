@@ -91,5 +91,7 @@ export const inventoryAdjustments = sqliteTable("inventory_adjustments", {
   delta: integer("delta").notNull(),
   reason: text("reason").notNull(),
   actor: text("actor").notNull(),
+  // Legacy adjustments retain their original display name without guessing an account.
+  actorUserId: text("actor_user_id"),
   createdAt: text("created_at").notNull(),
 });
