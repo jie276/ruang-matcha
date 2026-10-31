@@ -117,3 +117,32 @@ export interface OrderRow {
   cancellation_reason: string;
   revision: number;
 }
+export interface OrderSnapshot {
+  customer: {
+    name: string;
+    phone: string;
+    email: string;
+    address: string;
+    city: string;
+    state: string;
+    postcode: string;
+    note: string;
+  };
+  items: Array<{
+    skuId: string;
+    productId: string;
+    name: string;
+    label: string;
+    image: string;
+    price: number;
+    quantity: number;
+  }>;
+  subtotal: number;
+  discount: number;
+  coupon: string;
+  shippingFee: number;
+  shippingName: string;
+  note: string;
+  tracking: string;
+  carrier: string;
+}

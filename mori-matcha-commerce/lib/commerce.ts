@@ -20,7 +20,7 @@ import {
   expirePendingOrders,
   ORDER_RESERVATION_MINUTES,
 } from "./server";
-import type { OrderRow, ProductRow, RecordKind } from "./commerce-records";
+import type { OrderRow, OrderSnapshot, ProductRow, RecordKind } from "./commerce-records";
 import { sampleProducts, defaultHero, roles } from "./model";
 const txt = z.string().trim().max(5000),
   short = z.string().trim().min(1).max(160),
@@ -126,8 +126,8 @@ const schemas: Record<string, z.ZodTypeAny> = {
     status: z.enum(["active", "disabled"]),
   }),
 };
-const parseOrder = (r: OrderRow) => ({
-  ...JSON.parse(r.data),
+const parseAdminOrder = (r: OrderRow) => ({
+  ...(JSON.parse(r.data) as OrderSnapshot),
   id: r.id,
   idempotencyKey: r.idempotency_key,
   total: r.total,
@@ -139,6 +139,47 @@ const parseOrder = (r: OrderRow) => ({
   revision: r.revision,
   isDemo: !!r.is_demo,
 });
+// Customer responses are an allowlist, including nested snapshots. New internal
+// fields must remain private even when an existing order is returned on retry.
+const customerOrder = (order: ReturnType<typeof parseAdminOrder>) => ({
+  id: order.id,
+  idempotencyKey: order.idempotencyKey,
+  total: order.total,
+  status: order.status,
+  paymentStatus: order.paymentStatus,
+  createdAt: order.createdAt,
+  expiresAt: order.expiresAt,
+  cancellationReason: order.cancellationReason,
+  revision: order.revision,
+  isDemo: order.isDemo,
+  subtotal: order.subtotal,
+  discount: order.discount,
+  coupon: order.coupon,
+  shippingFee: order.shippingFee,
+  shippingName: order.shippingName,
+  carrier: order.carrier,
+  tracking: order.tracking,
+  customer: {
+    name: order.customer.name,
+    phone: order.customer.phone,
+    email: order.customer.email,
+    address: order.customer.address,
+    city: order.customer.city,
+    state: order.customer.state,
+    postcode: order.customer.postcode,
+    note: order.customer.note,
+  },
+  items: order.items.map((item) => ({
+    skuId: item.skuId,
+    productId: item.productId,
+    name: item.name,
+    label: item.label,
+    image: item.image,
+    price: item.price,
+    quantity: item.quantity,
+  })),
+});
+const parseCustomerOrder = (r: OrderRow) => customerOrder(parseAdminOrder(r));
 function checkOrigin(req: Request) {
   const origin = req.headers.get("origin");
   if (!origin || origin !== new URL(req.url).origin)
@@ -317,7 +358,7 @@ export async function handle(req: Request, path: string[]) {
       "SELECT * FROM orders WHERE owner_id=? ORDER BY created_at DESC LIMIT 200",
       u.userId,
     ).all<OrderRow>();
-    return results.map(parseOrder);
+    return results.map(parseCustomerOrder);
   }
   if (p === "orders" && method === "POST") {
     const u = await identity();
@@ -358,7 +399,7 @@ export async function handle(req: Request, path: string[]) {
       u.userId,
       b.idempotencyKey,
     ).first<OrderRow>();
-    if (existing) return parseOrder(existing);
+    if (existing) return parseCustomerOrder(existing);
     const c = (await getRecords("customers")).find(
       (x) => x.userId === u.userId,
     );
@@ -455,10 +496,10 @@ export async function handle(req: Request, path: string[]) {
         u.userId,
         b.idempotencyKey,
       ).first<OrderRow>();
-      if (retry) return parseOrder(retry);
+      if (retry) return parseCustomerOrder(retry);
       fail("库存已变化，请刷新商品后重试", 409);
     }
-    return {
+    return customerOrder({
       id,
       ...data,
       total,
@@ -470,7 +511,7 @@ export async function handle(req: Request, path: string[]) {
       idempotencyKey: b.idempotencyKey,
       cancellationReason: "",
       revision: 1,
-    };
+    });
   }
   if (path[0] === "orders" && path.length === 3 && method === "POST") {
     const u = await identity();
@@ -825,7 +866,7 @@ export async function handle(req: Request, path: string[]) {
       await sql(
         "SELECT * FROM orders ORDER BY created_at DESC LIMIT 1000",
       ).all<OrderRow>()
-    ).results.map(parseOrder);
+    ).results.map(parseAdminOrder);
   }
   if (path[1] === "orders" && path[2] && method === "PATCH") {
     const a = await admin("orders");
@@ -896,7 +937,7 @@ export async function handle(req: Request, path: string[]) {
       await sql(
         "SELECT * FROM orders ORDER BY created_at DESC LIMIT 10000",
       ).all<OrderRow>()
-    ).results.map(parseOrder);
+    ).results.map(parseAdminOrder);
     return {
       orders: rows,
       total: rows

@@ -197,6 +197,22 @@ const logs = (action, target) =>
     .prepare("SELECT * FROM audit_logs WHERE action=? AND target=?")
     .all(action, target);
 const row = (id) => sqlite.prepare("SELECT * FROM orders WHERE id=?").get(id);
+function assertCustomerOrder(order) {
+  assert.deepEqual(Object.keys(order).sort(), [
+    "id", "idempotencyKey", "total", "status", "paymentStatus", "createdAt",
+    "expiresAt", "cancellationReason", "revision", "isDemo", "subtotal",
+    "discount", "coupon", "shippingFee", "shippingName", "carrier", "tracking",
+    "customer", "items",
+  ].sort(), "customer order must use the public field contract");
+  assert.deepEqual(Object.keys(order.customer).sort(), [
+    "name", "phone", "email", "address", "city", "state", "postcode", "note",
+  ].sort());
+  for (const item of order.items) {
+    assert.deepEqual(Object.keys(item).sort(), [
+      "skuId", "productId", "name", "label", "image", "price", "quantity",
+    ].sort());
+  }
+}
 const getProduct = async (id) =>
   (await call("admin/products")).find((product) => product.id === id);
 function barrier(predicate, arrivals = 2) {
@@ -439,7 +455,10 @@ try {
     status: "active",
   });
   const payload = { ...checkoutPayload(sku.id), coupon: "qa" };
+  payload.customer.note = "Customer delivery instructions";
   const order = await checkout(payload);
+  assertCustomerOrder(order);
+  assert.equal(order.customer.note, payload.customer.note);
   assert.equal(
     order.total,
     2300 * 2 - 100 + 600,
@@ -451,6 +470,33 @@ try {
     30 * 60000,
   );
   assert.equal((await checkout(payload)).id, order.id);
+  // Every customer return path must omit internal data, including future fields
+  // nested in snapshots. Admins must retain their own notes and financial data.
+  const privateMarker = "STAFF-ONLY-PRIVACY-REGRESSION";
+  await call("admin/orders/" + order.id, "PATCH", {
+    action: "note", note: privateMarker,
+  });
+  const privateSnapshot = JSON.parse(row(order.id).data);
+  privateSnapshot.internalRisk = privateMarker;
+  privateSnapshot.customer.internalRisk = privateMarker;
+  privateSnapshot.items[0].supplierCost = privateMarker;
+  sqlite.prepare("UPDATE orders SET data=? WHERE id=?")
+    .run(JSON.stringify(privateSnapshot), order.id);
+  const listed = (await call("orders", "GET", undefined, buyer))
+    .find((item) => item.id === order.id);
+  const replayed = await checkout(payload);
+  for (const publicOrder of [listed, replayed]) {
+    assertCustomerOrder(publicOrder);
+    assert.ok(!JSON.stringify(publicOrder).includes(privateMarker));
+    assert.equal(publicOrder.customer.note, payload.customer.note);
+    assert.equal(publicOrder.idempotencyKey, payload.idempotencyKey);
+    assert.deepEqual(publicOrder.items, order.items);
+    assert.equal(publicOrder.total, order.total);
+    assert.equal(publicOrder.shippingFee, order.shippingFee);
+    assert.equal(publicOrder.discount, order.discount);
+  }
+  assert.equal((await call("admin/orders")).find((item) => item.id === order.id).note, privateMarker);
+  assert.equal((await call("admin/reports")).orders.find((item) => item.id === order.id).note, privateMarker);
   assert.equal(stock(sku.id), 23);
   assert.equal((await call("orders", "GET", undefined, stranger)).length, 0);
   await rejectsStatus(
@@ -487,6 +533,8 @@ try {
     [() => checkout(samePayload), () => checkout(samePayload)],
   );
   assert.ok(duplicates.every((result) => result.status === "fulfilled"));
+  // The losing INSERT returns the order through the transaction catch/requery.
+  for (const result of duplicates) assertCustomerOrder(result.value);
   assert.equal(duplicates[0].value.id, duplicates[1].value.id);
   assert.equal(
     stock(sku.id),
