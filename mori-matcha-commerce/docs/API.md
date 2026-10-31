@@ -75,7 +75,7 @@
 
 records 的 kind 包括 categories、coupons、shipping、content、settings、customers、aftersales、reviews、tickets。售后、评价、工单只能处理顾客已有记录，后台不能伪造申请。商品与订单没有物理删除入口。
 
-商品字段包括 name、nameEN、description、descriptionEN、category、images、detailImages、origin、storage、ingredients、status、variants。每个规格包含 id、label、price（整数分）、stock、active。修改商品要带 id 和 revision；版本冲突返回 409。已有规格的库存只能经 /admin/inventory 调整，编辑商品时的 stock 不会覆盖它。图片最多 12 张主图、20 张详情图；上传单张不超过 5 MiB，只收 PNG、JPEG、WebP、GIF，文件内容会做格式检查。
+商品字段包括 name、nameEN、description、descriptionEN、category、images、detailImages、origin、storage、ingredients、status、variants。每个规格包含 id、label、price（整数分）、stock、active、image（可空，空值回退商品首图）。商品新增 nameMS、descriptionMS，分类新增 nameMS，首页内容新增 titleMS、descriptionMS；缺少马来文时页面回退英文，再回退原文。修改商品要带 id 和 revision；版本冲突返回 409。已有规格的库存只能经 /admin/inventory 调整，编辑商品时的 stock 不会覆盖它。图片最多 12 张主图、20 张详情图；上传单张不超过 5 MiB，只收 PNG、JPEG、WebP、GIF，文件内容会做格式检查。
 
 ## 权限与订单流转
 
@@ -87,7 +87,7 @@ records 的 kind 包括 categories、coupons、shipping、content、settings、c
 | support 客服 | 订单、售后、客户、客服工单 |
 | finance 财务 | 看订单及加备注、审核售后、报表、日志；不能演示确认、发货或取消 |
 
-体验订单由“待付款 → 待发货 → 已发货 → 已完成”。待付款或待发货可取消，取消归还库存；已发货或完成后不能直接取消，应走售后。演示确认只把 paymentStatus 记为 demo，**不表示款项到账**。售后审核通过也不会触发真实退款。
+体验订单由“待付款 → 待发货 → 已发货 → 已完成”。待付款或待发货可取消，取消归还库存；并发取消只有一次成功，另一次返回 409，库存只归还一次。订单按创建时间保留 30 分钟，未付款且超时的订单在下一次商品目录、订单或相关后台接口请求时取消并释放库存。此机制由请求触发，不是后台定时任务。已发货或完成后不能直接取消，应走售后。演示确认只把 paymentStatus 记为 demo，**不表示款项到账**。售后审核通过也不会触发真实退款。
 
 ## 换成 Spring Boot + MySQL 时
 
@@ -95,12 +95,30 @@ records 的 kind 包括 categories、coupons、shipping、content、settings、c
 2. 保持 /api/v1 路径与响应结构，逐项实现上面的接口；前端尽量继续使用 lib/api.ts。每个后台接口按当前角色重新鉴权，写操作保留 CSRF 或同源防护。
 3. 将 products、skus、orders、order_items、admins、inventory_adjustments、audit_logs 等模型迁移到 MySQL。通用 records 可按业务拆表。D1/SQLite 的触发器和 SQL 不能直接拿到 MySQL 执行。
 4. 订单创建、扣库存、取消与归还必须在事务中完成，并加幂等唯一约束与状态校验；支付回调还要验签、核金额和币种、去重。只在实际支付成功后更新正式付款状态。
-5. 替换图片存储与访问地址；接入实际支付/退款、物流下单与轨迹、通知、税费发票、订单超时释放库存、备份与监控，并通过完整验收后再开放真实交易。
+5. 替换图片存储与访问地址；接入实际支付/退款、物流下单与轨迹、通知、税费发票、准点运行的订单超时调度、备份与监控，并通过完整验收后再开放真实交易。
 
 当前 payments 与 webhooks 路径是预留入口，未配置时返回 503，不会执行交易。不要把体验订单直接解释为已付款订单。
 
+## 新增字段与迁移
+
+`drizzle/0002_commerce_guards.sql` 为规格增加 `image`，为订单增加 `expires_at`、`cancellation_reason`、`revision`，并在数据库中保护 SKU 归属、下单时的价格/状态校验和库存释放。迁移为已有待付款订单回填创建时间后 30 分钟的到期时间；应用新代码后，旧的超时订单会在相关请求中释放。测试覆盖从旧结构迁移，部署时仍需先备份并在目标测试环境验收。本次整改没有执行生产迁移。
+
+店铺设置支持 `shopeeUrl`、`tiktokUrl`、`whatsappUrl`（空字符串或 HTTPS URL）、`contact` 和 `lowStock`。公开目录只返回顾客需要的设置；后台 bootstrap 返回店名和低库存阈值。未配置的平台链接不会变成示例商家链接；公开咨询窗口无需登录，站内留言仍需登录。WhatsApp 跳转和平台下单由相应外部网站处理。
+
+已公开评价的 `reply` 会随目录返回。未审核评价和客户内部信息不在公开目录中返回。商品、订单更新冲突使用 HTTP 409，操作日志记录 `.conflict` 与 `outcome=conflict`，到期释放记录 `order.expire`。
+
 ## 验证与限制
 
-源码可运行 node scripts/test-commerce.mjs 进行控制器集成检查，运行 node node_modules/typescript/bin/tsc --noEmit 做类型检查。安装依赖和构建依赖现有 Sites 工作流与其运行环境；从 GitHub 克隆并在普通主机执行前，需要先准备相应托管能力和环境配置。
+开发和 CI 使用 Node.js 24.14.1、pnpm 11.25.0。保留仓库中的锁文件：
+
+```sh
+pnpm run install:ci
+pnpm run typecheck
+pnpm test
+pnpm run lint
+pnpm run build
+```
+
+`pnpm run verify` 顺序运行上述四项检查（不重新安装）。`install:ci` 在普通主机使用冻结锁文件安装，在 Sites 管理环境保留原有安装流程。`.github/workflows/commerce-checks.yml` 对 PR、main 和 codex 分支运行相同检查，不含部署步骤，也不需要生产凭证。
 
 已有检查覆盖管理员隔离、首次绑定、商品与库存、服务端计价、优惠、订单幂等与归属、售后、评价、工单、角色和同源检查。它们不等于真实支付、物流、管理员首次激活和图片上传的生产验收。正式上线前需在目标部署环境逐项验证。

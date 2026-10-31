@@ -8,6 +8,7 @@ const managedLinux = readExecutionProfile() === "managed-linux";
 
 if (managedLinux && command === "build") {
   const result = spawnSync("bash", [
+    fileURLToPath(new URL("./sites-env.sh", import.meta.url)), "--", "bash",
     fileURLToPath(new URL("./build-verified.sh", import.meta.url)), ...args,
   ], { stdio: "inherit" });
   if (result.error) throw result.error;

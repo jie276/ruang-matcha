@@ -1,0 +1,44 @@
+name: Commerce checks
+
+on:
+  pull_request:
+    paths:
+      - "mori-matcha-commerce/**"
+      - ".github/workflows/commerce-checks.yml"
+  push:
+    branches: [main, "codex/**"]
+    paths:
+      - "mori-matcha-commerce/**"
+      - ".github/workflows/commerce-checks.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commerce-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: mori-matcha-commerce
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.14.1"
+      - name: Install pinned package manager
+        run: npm install --global pnpm@11.25.0
+      - name: Install frozen dependencies
+        run: pnpm run install:ci
+      - name: Type check
+        run: pnpm run typecheck
+      - name: Controller regression tests
+        run: pnpm test
+      - name: Lint
+        run: pnpm run lint
+      - name: Build
+        run: pnpm run build
